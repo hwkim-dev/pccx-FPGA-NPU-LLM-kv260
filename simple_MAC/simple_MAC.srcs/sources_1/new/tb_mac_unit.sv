@@ -24,15 +24,15 @@
 
 module tb_mac_unit();
 
-    // 1. 모듈에 연결할 가짜 신호들 선언
+    // 1. Defining dummy signals
     logic        clk;
     logic        rst_n;
     logic [7:0]  i_a;
     logic [7:0]  i_b;
     logic [15:0] o_acc;
 
-    // 2. 우리가 만든 mac_unit을 실험대에 올리기 (Instatiation)
-    mac_unit uut (
+    // 2. Instantiate the mac_unit on the testbench
+    pe_unit uut (
         .clk   (clk),
         .rst_n (rst_n), 
         .i_a   (i_a),
@@ -40,8 +40,8 @@ module tb_mac_unit();
         .o_acc (o_acc)
     );
 
-    // 3. 가짜 클럭 생성 (100MHz)
-    // 5ns마다 신호를 반전시켜서 10ns(100MHz) 주기를 만듦
+    // 3. Generating a dummy clock (100MHz)
+    // Toggle the signal every 5ns to create a 10ns period
     initial clk = 0;
     always #5 clk = ~clk;
 
