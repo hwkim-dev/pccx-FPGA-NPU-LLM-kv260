@@ -144,3 +144,51 @@ graph LR
 ```
 
 # 4.양쪽 작업이 다 끝나면 ping_pong_sel = ~ping_pong_sel; 로 스위칭! (0은 1로, 1은 0으로)
+
+```c++
+int buffer_0[256]; // BRAM 0
+int buffer_1[256]; // BRAM 1
+
+// Phase 1 (ping_pong_sel = 0)
+buffer_0[0] = 10; // 0a
+buffer_0[1] = 20; // 14
+
+// Phase 2 (ping_pong_sel = 1)
+// NPU는 buffer_0에서 데이터를 안전하게 읽고
+int read_val = buffer_0[0]; 
+
+// 동시에 DMA는 다음 데이터를 buffer_1에 쓴다!
+buffer_1[0] = 30; // 1e  <-- 30은 여기에 들어감!
+```
+
+>Q:  "시뮬레이션 웨이브 상으로는 dma_addr과 wdata에 00, 0a(10)이 ram의 값으로 들어가는 순간 동시(클럭상으로 동일)에 dma_addr과 wdata에 01, 14(20)가 할당되는 것처럼 보여 이게 문제 없을까?"  
+
+A: 하드웨어의 핵심: "과거를 읽고, 미래를 쓴다" (<= Non-blocking)
+하드웨어의 모든 플립플롭(메모리, 레지스터)은 클럭이 0에서 1로 딱 올라가는 **Rising Edge (파형에서 솟아오르는 순간)** 에만 동작해. 이때 아주 중요한 2가지 절대 규칙이 있어.
+
+* 읽을 때는 '클럭이 뛰기 직전(과거)'의 값을 읽어간다. (Setup Time)
+
+* 값이 변하는 건 '클럭이 뛴 직후(미래)'부터 반영된다. (Clock-to-Q)
+
+[클럭이 뛰기 0.001초 전]
+
+* dma_addr는 00을 유지하고 있고, dma_wdata는 0a (10)을 유지하고 있다.  
+
+[클럭 엣지 발생]
+
+* BRAM : 방금 전까지 가지고 있던 주소(00)랑 데이터(0a) 를 ram[0] 안에 넣음 (여기서 ram[0]에 10이 저장됨)
+
+* 테스트벤치(DMA) : 주소 01이랑 데이터 14 (20)를 저장 (여기서 파형의 값이 01, 14(10진수 20)로 바뀜)  
+
+```c++
+// 매 클럭(Loop)마다 일어나는 일
+int old_addr = current_addr;
+int old_data = current_data;
+
+// 1. BRAM은 옛날(방금 전) 값을 읽어서 저장하고
+ram[old_addr] = old_data; 
+
+// 2. 테스트벤치는 새로운 값으로 업데이트함 (동시에 발생!)
+current_addr = 1;
+current_data = 20;
+```
