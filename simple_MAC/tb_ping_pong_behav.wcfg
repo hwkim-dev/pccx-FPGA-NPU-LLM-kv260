@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="tb_npu_core_top_NxN_behav.wdb" id="1">
+         <top_modules>
+            <top_module name="glbl" />
+            <top_module name="tb_npu_core_top_NxN" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <zoom_setting>
+      <ZoomStartTime time="0.000 ns"></ZoomStartTime>
+      <ZoomEndTime time="777.501 ns"></ZoomEndTime>
+      <Cursor1Time time="465.000 ns"></Cursor1Time>
+   </zoom_setting>
+   <column_width_setting>
+      <NameColumnWidth column_width="202"></NameColumnWidth>
+      <ValueColumnWidth column_width="125"></ValueColumnWidth>
+   </column_width_setting>
+   <WVObjectSize size="30" />
+   <wvobject fp_name="/tb_npu_core_top_NxN/clk" type="logic">
+      <obj_property name="ElementShortName">clk</obj_property>
+      <obj_property name="ObjectShortName">clk</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/rst_n" type="logic">
+      <obj_property name="ElementShortName">rst_n</obj_property>
+      <obj_property name="ObjectShortName">rst_n</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dma_we" type="logic">
+      <obj_property name="ElementShortName">dma_we</obj_property>
+      <obj_property name="ObjectShortName">dma_we</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dma_addr" type="array">
+      <obj_property name="ElementShortName">dma_addr[7:0]</obj_property>
+      <obj_property name="ObjectShortName">dma_addr[7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dma_wdata" type="array">
+      <obj_property name="ElementShortName">dma_wdata[7:0]</obj_property>
+      <obj_property name="ObjectShortName">dma_wdata[7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/start_mac" type="logic">
+      <obj_property name="ElementShortName">start_mac</obj_property>
+      <obj_property name="ObjectShortName">start_mac</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/out_acc" type="array">
+      <obj_property name="ElementShortName">out_acc[0:3][0:3][15:0]</obj_property>
+      <obj_property name="ObjectShortName">out_acc[0:3][0:3][15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/SIZE" type="array">
+      <obj_property name="ElementShortName">SIZE[31:0]</obj_property>
+      <obj_property name="ObjectShortName">SIZE[31:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/\delay_inst[1].u_delay_a /\gen_delay.shift_reg " type="array">
+      <obj_property name="ElementShortName">\gen_delay.shift_reg [0:0][7:0]</obj_property>
+      <obj_property name="ObjectShortName">\gen_delay.shift_reg [0:0][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/\delay_inst[1].u_delay_b /\gen_delay.shift_reg " type="array">
+      <obj_property name="ElementShortName">\gen_delay.shift_reg [0:0][7:0]</obj_property>
+      <obj_property name="ObjectShortName">\gen_delay.shift_reg [0:0][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/\delay_inst[2].u_delay_a /\gen_delay.shift_reg " type="array">
+      <obj_property name="ElementShortName">\gen_delay.shift_reg [0:1][7:0]</obj_property>
+      <obj_property name="ObjectShortName">\gen_delay.shift_reg [0:1][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/\delay_inst[2].u_delay_b /\gen_delay.shift_reg " type="array">
+      <obj_property name="ElementShortName">\gen_delay.shift_reg [0:1][7:0]</obj_property>
+      <obj_property name="ObjectShortName">\gen_delay.shift_reg [0:1][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/\delay_inst[3].u_delay_a /\gen_delay.shift_reg " type="array">
+      <obj_property name="ElementShortName">\gen_delay.shift_reg [0:2][7:0]</obj_property>
+      <obj_property name="ObjectShortName">\gen_delay.shift_reg [0:2][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/\delay_inst[3].u_delay_b /\gen_delay.shift_reg " type="array">
+      <obj_property name="ElementShortName">\gen_delay.shift_reg [0:2][7:0]</obj_property>
+      <obj_property name="ObjectShortName">\gen_delay.shift_reg [0:2][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[0]" type="array">
+      <obj_property name="ElementShortName">[0][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[0][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[1]" type="array">
+      <obj_property name="ElementShortName">[1][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[1][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[2]" type="array">
+      <obj_property name="ElementShortName">[2][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[2][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[3]" type="array">
+      <obj_property name="ElementShortName">[3][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[3][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[4]" type="array">
+      <obj_property name="ElementShortName">[4][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[4][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[5]" type="array">
+      <obj_property name="ElementShortName">[5][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[5][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[6]" type="array">
+      <obj_property name="ElementShortName">[6][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[6][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_0/ram[7]" type="array">
+      <obj_property name="ElementShortName">[7][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[7][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[0]" type="array">
+      <obj_property name="ElementShortName">[0][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[0][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[1]" type="array">
+      <obj_property name="ElementShortName">[1][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[1][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[2]" type="array">
+      <obj_property name="ElementShortName">[2][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[2][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[3]" type="array">
+      <obj_property name="ElementShortName">[3][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[3][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[4]" type="array">
+      <obj_property name="ElementShortName">[4][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[4][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[5]" type="array">
+      <obj_property name="ElementShortName">[5][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[5][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[6]" type="array">
+      <obj_property name="ElementShortName">[6][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[6][7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/tb_npu_core_top_NxN/dut/u_bram/bram_1/ram[7]" type="array">
+      <obj_property name="ElementShortName">[7][7:0]</obj_property>
+      <obj_property name="ObjectShortName">[7][7:0]</obj_property>
+   </wvobject>
+</wave_config>

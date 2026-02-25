@@ -40,3 +40,18 @@ obj_dir/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Vivado Crash Logs & Backups
+hs_err_pid*.log
+*.backup.jou
+*.backup.log
+
+# Block Design UI 찌꺼기
+*/ui/
+
+# Xilinx Hardware Handoff files (버전 관리를 위해 따로 릴리즈 폴더에 모으는게 아니라면 무시)
+*.xsa
+*.hdf
+
+# Vitis/SDK Board Support Package (BSP는 코드를 통해 빌드 시 자동 생성되므로 보통 무시)
+*.bsp/
