@@ -1,3 +1,6 @@
+#model files
+*.npy
+
 # Vivado junk files
 *.jou
 *.log
