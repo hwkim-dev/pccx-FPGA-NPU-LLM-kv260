@@ -4,124 +4,173 @@ module gemma_layer_top (
     input  logic               clk,
     input  logic               rst_n,
 
-    input  logic               layer_valid_in,
-    input  logic [31:0]        i_token_mean_sq,
-    input  logic signed [15:0] i_token_vector,
-    input  logic signed [15:0] i_weight_matrix,
+    // -------------------------------------------------------------------
+    // [AXI4-Lite MMIO 제어 신호들] (0x00 ~ 0x10)
+    // -------------------------------------------------------------------
+    input  logic               i_npu_start,     // 0x00 [Bit 0] (Kernel Launch!)
+    input  logic               i_acc_clear,     // 0x00 [Bit 1] (누산기 리셋)
+    input  logic [31:0]        i_rms_mean_sq,   // 0x08 (RMSNorm 분모)
+    input  logic               i_ping_pong_sel, // 0x0C (DMA ↔ NPU 스위치)
+    input  logic               i_gelu_en,       // 0x10 [Bit 0] (GeLU 활성화)
+    input  logic               i_softmax_en,    // 0x10 [Bit 1] (Softmax 활성화)
+    output logic               o_npu_done,      // 0x04 [Bit 0] (연산 완료 깃발)
 
-    output logic               layer_valid_out,
-    output logic [15:0]        o_softmax_prob,
-    output logic [15:0]        o_mac_debug_mix 
+    // -------------------------------------------------------------------
+    // [AXI DMA 스트리밍 인터페이스 (예시)]
+    // 실제로는 AXI-Stream (TVALID, TDATA 등) 규격을 사용하겠지만, 개념적으로 표현함!
+    // -------------------------------------------------------------------
+    input  logic               i_dma_we_token,
+    input  logic [7:0]         i_dma_addr_token,
+    input  logic [7:0]         i_dma_wdata_token,
+
+    input  logic               i_dma_we_weight,
+    input  logic [7:0]         i_dma_addr_weight,
+    input  logic [255:0]       i_dma_wdata_weight, // 32x8bit 타일 한 줄
+
+    output logic [15:0]        o_final_result      // DMA를 통해 CPU로 돌아갈 최종 결과
 );
 
-    // -------------------------------------------------------------------------
-    // 🚀 [Stage 1] Pre-Norm (RMSNorm)
-    // -------------------------------------------------------------------------
-    logic        rms_valid_out;
+    // =========================================================================
+    // 1. FSM (Warp Scheduler): 커널의 생명주기 통제
+    // =========================================================================
+    typedef enum logic [1:0] {
+        ST_IDLE     = 2'd0,  // 대기
+        ST_WAIT_RMS = 2'd1,  // 0x08로 들어온 mean_sq가 역제곱근으로 변환될 때까지 대기
+        ST_RUN      = 2'd2,  // 핑퐁 BRAM에서 32x32 어레이로 데이터 폭격!
+        ST_WAIT_MAC = 2'd3   // Systolic 파이프라인(Wavefront) 잔여 연산 완료 대기
+    } state_t;
+
+    state_t state, next_state;
+    logic [5:0] feed_counter; 
+    logic       npu_running;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state        <= ST_IDLE;
+            feed_counter <= 6'd0;
+        end else begin
+            state <= next_state;
+            if (state == ST_RUN) feed_counter <= feed_counter + 1;
+            else                 feed_counter <= 6'd0;
+        end
+    end
+
+    logic rms_valid_out, mac_valid_out;
+
+    always_comb begin
+        next_state  = state;
+        o_npu_done  = 1'b0;
+        npu_running = 1'b0;
+
+        case (state)
+            ST_IDLE: begin
+                if (i_npu_start) next_state = ST_WAIT_RMS; 
+            end
+            ST_WAIT_RMS: begin
+                if (rms_valid_out) next_state = ST_RUN; 
+            end
+            ST_RUN: begin
+                npu_running = 1'b1;
+                if (feed_counter == 6'd31) next_state = ST_WAIT_MAC; // 32번 데이터 다 넣었음!
+            end
+            ST_WAIT_MAC: begin
+                if (mac_valid_out) begin 
+                    o_npu_done = 1'b1;       // CPU한테 0x04 깃발 올려줌
+                    next_state = ST_IDLE;
+                end
+            end
+        endcase
+    end
+
+    // =========================================================================
+    // 2. [Stage 1] Pre-Norm (RMSNorm 계산기)
+    // =========================================================================
     logic [15:0] rms_inv_sqrt_val;
 
     rmsnorm_inv_sqrt u_rmsnorm (
-        .clk(clk),
-        .rst_n(rst_n),
-        .valid_in(layer_valid_in),
-        .i_mean_sq(i_token_mean_sq),
-        .valid_out(rms_valid_out),
+        .clk(clk), .rst_n(rst_n),
+        .valid_in(i_npu_start),       // CPU가 Start 때리면 계산 시작!
+        .i_mean_sq(i_rms_mean_sq),    // 0x08에서 날아온 스칼라
+        .valid_out(rms_valid_out),    // 계산 끝나면 FSM을 RUN으로 넘김
         .o_inv_sqrt(rms_inv_sqrt_val)
     );
 
-    // -------------------------------------------------------------------------
-    // ⚡ [Stage 1.5] Vector Scaling 
-    // -------------------------------------------------------------------------
-    logic               norm_vec_valid;
-    logic signed [15:0] norm_token_vector;
+    // =========================================================================
+    // 3. Ping-Pong BRAM & Vector Scaling (On-the-fly)
+    // =========================================================================
+    // 핑퐁 버퍼에서 읽어온 원본 데이터
+    logic [7:0] raw_token_data  [0:31]; 
+    logic [7:0] sys_weight_data [0:31]; 
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            norm_vec_valid    <= 0;
-            norm_token_vector <= 0;
-        end else if (rms_valid_out) begin
-            norm_token_vector <= (i_token_vector * $signed({1'b0, rms_inv_sqrt_val})) >> 15;
-            norm_vec_valid    <= 1'b1;
-        end else begin
-            norm_vec_valid    <= 1'b0;
-        end
-    end
+    ping_pong_bram u_bram_token (
+        .clk(clk), .rst_n(rst_n),
+        .ping_pong_sel(i_ping_pong_sel),
+        /* DMA 연결 생략 */
+        .sys_addr(feed_counter),
+        .sys_rdata(raw_token_data)
+    );
 
-    // -------------------------------------------------------------------------
-    // ⚔️ [Stage 2] 1,024 코어 Systolic MAC Array
-    // -------------------------------------------------------------------------
-    logic [7:0] mac_in_a [0:31];
-    logic [7:0] mac_in_b [0:31];
-    
-    (* dont_touch = "yes" *) logic [31:0] mac_out_acc [0:31][0:31];
+    ping_pong_bram u_bram_weight (
+        .clk(clk), .rst_n(rst_n),
+        .ping_pong_sel(i_ping_pong_sel),
+        /* DMA 연결 생략 */
+        .sys_addr(feed_counter),
+        .sys_rdata(sys_weight_data)
+    );
 
+    // ⚡ BRAM에서 나오는 즉시 RMSNorm 역제곱근을 곱해서 MAC으로 밀어넣기!
+    logic [7:0] scaled_token_data [0:31];
     genvar i;
     generate
-        for (i = 0; i < 32; i++) begin : mac_input_assign
-            assign mac_in_a[i] = norm_token_vector[7:0]; 
-            assign mac_in_b[i] = i_weight_matrix[7:0];
+        for (i = 0; i < 32; i++) begin : gen_scaling
+            assign scaled_token_data[i] = (raw_token_data[i] * $signed({1'b0, rms_inv_sqrt_val})) >> 15;
         end
     endgenerate
 
-    (* keep_hierarchy = "yes" *) systolic_NxN #(
-        .ARRAY_SIZE(32)
-    ) u_mac_engine (
-        .clk(clk),
-        .rst_n(rst_n),
-        .i_clear(1'b0),
-        .in_a(mac_in_a),
-        .in_b(mac_in_b),
-        .in_valid(norm_vec_valid),
-        .out_acc(mac_out_acc) 
+    // =========================================================================
+    // 4. [Stage 2] 32x32 Systolic MAC Array (본체)
+    // =========================================================================
+    logic [31:0] mac_out_acc [0:31][0:31];
+
+    systolic_NxN #(.ARRAY_SIZE(32)) u_mac_engine (
+        .clk(clk), .rst_n(rst_n),
+        .i_clear(i_acc_clear),           // 0x00의 Bit 1 (누산기 강제 0 초기화)
+        .in_a(scaled_token_data),        // 스케일링 끝난 Token (가로축)
+        .in_b(sys_weight_data),          // 가중치 타일 (세로축)
+        .in_valid(npu_running),
+        .out_acc(mac_out_acc)
     );
 
-    (* dont_touch = "yes" *) logic [31:0] shift_reg_valid; 
+    // 파이프라인 레이턴시(Wavefront) 추적 시프트 레지스터
+    logic [63:0] shift_reg_valid; 
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            shift_reg_valid <= 0;
-        end else begin
-            shift_reg_valid <= {shift_reg_valid[30:0], norm_vec_valid};
-        end
+        if (!rst_n) shift_reg_valid <= 0;
+        else        shift_reg_valid <= {shift_reg_valid[62:0], npu_running};
     end
-    
-    logic               mac_valid_out;
-    logic signed [15:0] mac_attn_score;
+    assign mac_valid_out = shift_reg_valid[63]; // 약 64클럭 후 가장 오른쪽 아래 PE 완료
 
-    assign mac_valid_out  = shift_reg_valid[31];
+    // =========================================================================
+    // 5. [Stage 3] Activation MUX (GeLU & Softmax 라우팅)
+    // =========================================================================
+    // (예시로 31,31 위치의 값 하나만 추출. 실제론 32개 Output Channel 전체를 DMA로 넘김!)
+    logic signed [15:0] mac_attn_score;
     assign mac_attn_score = mac_out_acc[31][31][15:0]; 
 
-    // -------------------------------------------------------------------------
-    // 🛡️ [Warning 청소기] 안 쓰는 비트들을 쓰레기통(Dummy Sink)으로 모조리 흡수!
-    // -------------------------------------------------------------------------
-    logic [31:0] debug_mix;
-    logic        unused_sink;
-    
-    always_comb begin
-        debug_mix = 32'd0;
-        for (int r = 0; r < 32; r++) begin
-            for (int c = 0; c < 32; c++) begin
-                // 🔥 누산기의 '32비트 전체'를 XOR해서 상위 16비트가 버려지는 걸 막음!
-                debug_mix = debug_mix ^ mac_out_acc[r][c];
-            end
-        end
-        // 🔥 입력 16비트 중 안 썼던 상위 8비트들을 XOR로 뭉개서 1비트 쓰레기로 만듦!
-        unused_sink = ^i_weight_matrix[15:8] ^ ^norm_token_vector[15:8];
-    end
-    
-    // 최종적으로 32비트 덩어리를 16비트로 압축하고, 쓰레기 1비트도 슬쩍 얹어서 배출!
-    // -> Vivado: "오! 모든 전선을 하나도 빠짐없이 다 쓰셨네요! Warning 0개 띄워드릴게요!"
-    assign o_mac_debug_mix = debug_mix[15:0] ^ debug_mix[31:16] ^ {15'd0, unused_sink};
-
-    // -------------------------------------------------------------------------
-    // 🌊 [Stage 3] Softmax 가속기
-    // -------------------------------------------------------------------------
+    logic [15:0] softmax_prob;
     softmax_exp_unit u_softmax (
-        .clk(clk),
-        .rst_n(rst_n),
-        .valid_in(mac_valid_out),
-        .i_x(mac_attn_score),
-        .valid_out(layer_valid_out),
-        .o_exp(o_softmax_prob)
+        .clk(clk), .rst_n(rst_n), .valid_in(mac_valid_out),
+        .i_x(mac_attn_score), .valid_out(), .o_exp(softmax_prob)
     );
+
+    logic [15:0] gelu_out;
+    // assign gelu_out = lut_gelu(mac_attn_score); // (1-Cycle LUT 하드웨어 매핑)
+    assign gelu_out = mac_attn_score; // 여기선 임시 바이패스
+
+    // 🔥 0x10 레지스터에 따라 하드웨어 단위의 데이터 길(Route)을 터줌!
+    always_comb begin
+        if (i_softmax_en)       o_final_result = softmax_prob; // Softmax 모드 (LM Head)
+        else if (i_gelu_en)     o_final_result = gelu_out;     // GeLU 모드 (FFN Block)
+        else                    o_final_result = mac_attn_score; // 일반 모드 (Q,K,V,O Proj)
+    end
 
 endmodule

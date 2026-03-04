@@ -28,10 +28,10 @@ module tb_npu_core_top();
         .dma_we(dma_we), .dma_addr(dma_addr), .dma_write_data(dma_write_data),
         .start_mac(start_mac),
         .out_acc(out_acc),
-        .out_gelu(out_gelu)  // 🔥 포트 연결
+        .out_gelu(out_gelu)
     );
 
-    // 100MHz 클럭 생성 (주기 10ns)
+    // Generate clock 100MHz (period 10ns)
     initial begin
         clk = 0;
         forever #5 clk = ~clk;
@@ -74,10 +74,10 @@ module tb_npu_core_top();
         // 3. NPU 타일 연산 트리거 (발사!)
         $display("🔥 [Time: %0t] NPU 가동! 32x32 Wavefront 파도타기 시작!", $time);
         @(posedge clk);
-        #1; // 🔥 여기도 추가!
+        #1; 
         start_mac = 1'b1;
         @(posedge clk);
-        #1; // 🔥 여기도 추가!
+        #1; 
         start_mac = 1'b0;
 
         // 4. 연산 완료 대기

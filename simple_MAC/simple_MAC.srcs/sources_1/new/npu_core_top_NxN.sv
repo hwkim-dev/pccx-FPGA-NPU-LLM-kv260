@@ -36,7 +36,11 @@ module npu_core_top_NxN #(
     
     always_comb begin
         for (int i = 0; i < ARRAY_SIZE; i++) begin
-            // 🔥 [수정 2] 하위 256비트는 Matrix A, 상위 256비트는 Matrix B (완벽한 언패킹!)
+            // 하위 256비트는 Matrix A
+            // 상위 256비트는 Matrix B
+            // i = 0일 때: [0*8 +: 8] ➡️ 인덱스 0번부터 위로 8칸. 즉, [7:0] 비트를 의미해.
+            // i = 1일 때: [1*8 +: 8] ➡️ 인덱스 8번부터 위로 8칸. 즉, [15:8] 비트를 의미하지.
+            // unpacked_b에서 i = 0일 때: [(32+0)*8 +: 8] ➡️ 인덱스 256번부터 위로 8칸. 즉, 상위 데이터의 시작인 [263:256] 비트가 돼.
             unpacked_a[i] = systolic_read_data_a[i*8 +: 8];
             unpacked_b[i] = systolic_read_data_a[(ARRAY_SIZE + i)*8 +: 8]; 
         end
@@ -84,6 +88,7 @@ module npu_core_top_NxN #(
                 end
 
                 2: begin 
+                    // begin calc (systolic)
                     for (int i = 0; i < ARRAY_SIZE; i++) begin
                         fire_a[i] <= unpacked_a[i];
                         fire_b[i] <= unpacked_b[i];
@@ -149,7 +154,7 @@ module npu_core_top_NxN #(
                 gelu_lut u_gelu (
                     .clk(clk),
                     .valid_in(1'b1), 
-                    .data_in(out_acc[r][c]),      
+                    .data_in([r][c]),      
                     .valid_out(), 
                     .data_out(out_gelu[r][c])     
                 );
