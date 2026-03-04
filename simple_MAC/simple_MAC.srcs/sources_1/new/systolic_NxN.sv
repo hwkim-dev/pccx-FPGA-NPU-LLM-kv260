@@ -35,7 +35,7 @@ module systolic_NxN #(
                 .clk(clk), .rst_n(rst_n),
                 .in_data(in_b[i]), .out_data(wire_b[0][i])
             );
-        end
+        end 
     endgenerate
 
     // -----------------------------------------------------------------
@@ -53,7 +53,7 @@ module systolic_NxN #(
                     assign current_i_valid = in_valid;
                 end else if (col > 0) begin
                     assign current_i_valid = wire_v[row][col-1]; 
-                end else begin
+                end else begin //col = 0, then upper row 
                     assign current_i_valid = wire_v[row-1][col]; 
                 end
 

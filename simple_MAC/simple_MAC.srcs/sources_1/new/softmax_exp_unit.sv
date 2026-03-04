@@ -28,7 +28,6 @@ module softmax_exp_unit (
         end
     end
 
-    // 🔥 [버그 수술 완료] Q12 포맷에 맞춘 완벽한 비트 슬라이싱!
     logic [4:0]  shift_amount;
     logic [9:0]  frac_part;
     
@@ -42,7 +41,6 @@ module softmax_exp_unit (
     (* rom_style = "block" *) logic [15:0] lut_exp_frac [0:1023];
 
     initial begin
-        // 🚨 절대 경로 필수! (네 경로에 맞게 확인)
         $readmemh("softmax_frac.mem", lut_exp_frac);
     end
 

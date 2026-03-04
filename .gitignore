@@ -1,7 +1,24 @@
-#model files
+# ========================================
+# 🧠 LLM Weights & Data (Absolute Must Ignore!)
+# ========================================
+*.safetensors
+local_gemma_3n/
 *.npy
 
-# Vivado junk files
+# ========================================
+# 🐍 Python & PYNQ Environment
+# ========================================
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+pynq_env/
+venv/
+env/
+.env
+
+# ========================================
+# 🛠️ Vivado Junk & Build Files (Heavy!)
+# ========================================
 *.jou
 *.log
 *.pb
@@ -10,27 +27,39 @@
 .Xil/
 *.str
 *.zip
-
-# Vivado Log
 vivado.tcl
-
-# Verilator output
-obj_dir/
-
-# Vitis output
-.metadata/
-*.o
-*.elf
-
-
-# Vivado Directory Junk (수십 기가씩 먹는 폴더들)
+*.gen/
 *.runs/
 *.cache/
 *.hw/
 *.sim/
-*.ip_user_files/
 
-# Simulation, Waveform, Temp Files
+# IP 관련 찌꺼기 (원본 .xci 파일은 트래킹하되, 생성된 폴더는 무시)
+*.ip_user_files/
+manage_ip_project/
+ip_shared/
+
+# 프로젝트 백업 및 크래시 로그
+*.xpr.bak
+hs_err_pid*.log
+*.backup.jou
+*.backup.log
+
+# ========================================
+# 📦 Hardware Output Files (Optional)
+# 배포용이 아니라면 로컬에만 둠
+# ========================================
+*.bit
+*.bin
+*.hwh
+*.xclbin
+*.xsa
+*.hdf
+
+# ========================================
+# 💻 Simulator & OS Setup
+# ========================================
+obj_dir/
 *.vcd
 *.db
 *.wpc
@@ -39,22 +68,17 @@ obj_dir/
 *.bat
 *.ini
 
-# VS Code / OS Setup
 .vscode/
 .DS_Store
 Thumbs.db
 
-# Vivado Crash Logs & Backups
-hs_err_pid*.log
-*.backup.jou
-*.backup.log
-
 # Block Design UI 찌꺼기
 */ui/
 
-# Xilinx Hardware Handoff files (버전 관리를 위해 따로 릴리즈 폴더에 모으는게 아니라면 무시)
-*.xsa
-*.hdf
-
-# Vitis/SDK Board Support Package (BSP는 코드를 통해 빌드 시 자동 생성되므로 보통 무시)
+# Vitis / HLS
+.metadata/
+*.o
+*.elf
+*.ap_prj/
+*.solution/
 *.bsp/

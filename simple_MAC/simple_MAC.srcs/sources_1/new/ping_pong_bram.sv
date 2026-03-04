@@ -20,7 +20,6 @@ module ping_pong_bram #(
     output logic [DATA_WIDTH-1:0] npu_read_data_b
 );
 
-    // 🚨 내 지적 반영: [7:0] 하드코딩 제거 및 파라미터화
     logic                  we_0_a, we_0_b, we_1_a, we_1_b;
     logic [ADDR_WIDTH-1:0] addr_0_a, addr_0_b, addr_1_a, addr_1_b;
     logic [DATA_WIDTH-1:0] rdata_0_a, rdata_0_b, rdata_1_a, rdata_1_b;
