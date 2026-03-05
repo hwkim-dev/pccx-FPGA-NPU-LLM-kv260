@@ -1,36 +1,14 @@
 import numpy as np
 import math
 from transformers import AutoTokenizer
-
-# =====================================================================
-# [가상의 모델 가중치 로드] 
-# 실제로는 safetensors나 PyTorch 모델 파일에서 읽어와야 하지만, 
-# 지금은 구조를 잡는 거니까 numpy 랜덤 배열로 뼈대만 만들게!
-# =====================================================================
-vocab_size = 256000
-d_model = 2048
-ple_dim = 256
-
-print("Loading Model Weights to Host Memory (DDR)...")
-W_embed = np.random.randn(vocab_size, d_model).astype(np.float32)
-
-# PLE 가중치 (0번 레이어 예시)
-ple_proj_down = np.random.randn(d_model, ple_dim).astype(np.float32)
-ple_embed     = np.random.randn(1, ple_dim).astype(np.float32) # T=1
-ple_proj_up   = np.random.randn(ple_dim, d_model).astype(np.float32)
-
-# =====================================================================
-# 1. Tokenize (문자열 -> 정수 ID 배열)
-# =====================================================================
-# 기존: 인터넷 연결해서 가져오기
-# model_id = "google/gemma-3n-e4b" 
+import os
 
 # 변경: 로컬 폴더 경로에서 오프라인으로 바로 가져오기!
-model_id = "./local_gemma_3n" 
+base_dir = os.path.dirname(os.path.abspath(__file__))
+model_id = os.path.join(base_dir, "local_gemma_3n")
 tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
 
 def tokenize(text):
-    """ [CPU] 입력 프롬프트를 Token ID로 변환 """
     tokens = tokenizer(text, return_tensors="np")["input_ids"][0]
     print(f"[CPU] Tokenized IDs: {tokens}")
     return tokens
@@ -38,47 +16,27 @@ def tokenize(text):
 # =====================================================================
 # 2. Embedding (Token ID -> 2048차원 벡터)
 # =====================================================================
-def embedding(token_id):
-    """ [CPU] Token ID를 인덱스로 삼아 2048차원 벡터 룩업 """
-    # C++의 W_embed[token_id] 와 완벽히 동일한 메모리 오프셋 접근!
-    # 연산(Math)이 아니라 메모리 읽기(Memory Access) 작업임.
-    x = W_embed[token_id] 
-    
-    # NPU는 16bit(INT16 또는 FP16)를 쓰니까 데이터 타입 캐스팅!
+def embedding(token_id, W_embed_real):
+    x = W_embed_real[token_id] 
     return x.astype(np.float16)
 
 # =====================================================================
 # 3. PLE (Per-Layer Embedding) 주입
 # =====================================================================
-def inject_ple(x, layer_idx=0):
-    """ [CPU] Gemma 3N 특화: Low-Rank 레이어 임베딩 주입 """
-    # x: [2048], ple_proj_down: [2048, 256]
-    # np.dot(벡터, 행렬) -> [256] 차원 벡터 나옴
+# 🔥 파라미터로 진짜 PLE 가중치들을 받도록 수정!
+def inject_ple(x, ple_proj_down, ple_embed, ple_proj_up, layer_idx=0):
     x_down = np.dot(x, ple_proj_down) 
-    
-    # 요소별 곱셈 (Gating) 후 다시 2048로 Up Projection
     x_gated = x_down * ple_embed[0]
     ple_out = np.dot(x_gated, ple_proj_up)
     
-    # 기존 입력 x에 Residual Add
     x_final = x + ple_out
-    
     return x_final.astype(np.float16)
 
 def cpu_qk_norm(Q, K, gamma_q, gamma_k):
-    """ 
-    [CPU] Q와 K에 각각 RMSNorm 적용 (디코드 단계라 Q, K는 1D 벡터)
-    Q: [2048] (8헤드 x 256차원)
-    K: [512]  (2헤드 x 256차원)
-    """
-    # 분모 구하기 (eps는 보통 1e-6)
     q_inv_sqrt = 1.0 / np.sqrt(np.mean(Q**2) + 1e-6)
     k_inv_sqrt = 1.0 / np.sqrt(np.mean(K**2) + 1e-6)
-    
-    # 요소별(Element-wise) 스케일링
     Q_norm = (Q * q_inv_sqrt) * gamma_q
     K_norm = (K * k_inv_sqrt) * gamma_k
-    
     return Q_norm, K_norm
 
 # =====================================================================

@@ -1,13 +1,22 @@
 import numpy as np
 import os
-from safetensors.numpy import load_file
+import torch
+from safetensors.torch import load_file  # numpy 대신 torch 로드!
 
-def load_local_weights(model_dir="./local_gemma_3n"):
+base_dir = os.path.dirname(os.path.abspath(__file__))
+default_model_dir = os.path.join(base_dir, "local_gemma_3n")
+
+def load_local_weights(model_dir=default_model_dir):
     print("Loading weights and folding RMSNorm Gammas...")
     tensors = {}
     for filename in os.listdir(model_dir):
         if filename.endswith(".safetensors"):
-            tensors.update(load_file(os.path.join(model_dir, filename)))
+            # 🔥 1. PyTorch로 안전하게 bfloat16 텐서 로드
+            pt_tensors = load_file(os.path.join(model_dir, filename))
+            
+            # 🔥 2. bfloat16 -> float16 (FP16)으로 다운캐스팅 후 Numpy 배열로 변환!
+            for k, v in pt_tensors.items():
+                tensors[k] = v.to(torch.float16).numpy()
             
     weights = {"W_q_fused": [], "W_k_fused": [], "W_v_fused": [], "W_o": [],
                "W_gate_fused": [], "W_up_fused": [], "W_down": [],
@@ -15,32 +24,34 @@ def load_local_weights(model_dir="./local_gemma_3n"):
 
     for i in range(35):
         # 1. 텐서 가져오기
-        W_q = tensors[f"model.layers.{i}.self_attn.q_proj.weight"]
-        gamma_attn = tensors[f"model.layers.{i}.input_layernorm.weight"] # [2048]
+        # print("Available keys in tensors:", tensors.keys())
+
+        W_q = tensors[f"model.language_model.layers.{i}.self_attn.q_proj.weight"]
+        gamma_attn = tensors[f"model.language_model.layers.{i}.input_layernorm.weight"] # [2048]
         
         # 2. 🔥 대망의 Weight Folding (가중치 퓨전!) 🔥
         # gamma[:, None]을 곱해주면 2048차원 벡터가 행렬의 각 '행'에 브로드캐스팅 곱셈됨
         weights["W_q_fused"].append(W_q * gamma_attn[:, None])
-        weights["W_k_fused"].append(tensors[f"model.layers.{i}.self_attn.k_proj.weight"] * gamma_attn[:, None])
-        weights["W_v_fused"].append(tensors[f"model.layers.{i}.self_attn.v_proj.weight"] * gamma_attn[:, None])
+        weights["W_k_fused"].append(tensors[f"model.language_model.layers.{i}.self_attn.k_proj.weight"] * gamma_attn[None ,:])
+        weights["W_v_fused"].append(tensors[f"model.language_model.layers.{i}.self_attn.v_proj.weight"] * gamma_attn[None ,:])
         
         # (W_o는 Norm 직후가 아니므로 퓨전 안 함)
-        weights["W_o"].append(tensors[f"model.layers.{i}.self_attn.o_proj.weight"])
+        weights["W_o"].append(tensors[f"model.language_model.layers.{i}.self_attn.o_proj.weight"])
         
         # FFN 블록도 마찬가지로 Pre-Norm 감마를 융합!
-        gamma_ffn = tensors[f"model.layers.{i}.post_attention_layernorm.weight"]
-        weights["W_gate_fused"].append(tensors[f"model.layers.{i}.mlp.gate_proj.weight"] * gamma_ffn[:, None])
-        weights["W_up_fused"].append(tensors[f"model.layers.{i}.mlp.up_proj.weight"] * gamma_ffn[:, None])
-        weights["W_down"].append(tensors[f"model.layers.{i}.mlp.down_proj.weight"])
+        gamma_ffn = tensors[f"model.language_model.layers.{i}.post_attention_layernorm.weight"]
+        weights["W_gate_fused"].append(tensors[f"model.language_model.layers.{i}.mlp.gate_proj.weight"] * gamma_ffn[None ,:])
+        weights["W_up_fused"].append(tensors[f"model.language_model.layers.{i}.mlp.up_proj.weight"] * gamma_ffn[None ,:])
+        weights["W_down"].append(tensors[f"model.language_model.layers.{i}.mlp.down_proj.weight"])
         
         # QK-Norm 용 감마 (이건 CPU에서 처리하므로 그냥 넘김)
-        weights["gamma_q"].append(tensors[f"model.layers.{i}.self_attn.q_norm.weight"])
-        weights["gamma_k"].append(tensors[f"model.layers.{i}.self_attn.k_norm.weight"])
+        weights["gamma_q"].append(tensors[f"model.language_model.layers.{i}.self_attn.q_norm.weight"])
+        weights["gamma_k"].append(tensors[f"model.language_model.layers.{i}.self_attn.k_norm.weight"])
 
     # 임베딩 & Final Norm
-    W_embed = tensors["model.embed_tokens.weight"]
-    gamma_final = tensors["model.norm.weight"]
-    W_lm_head_fused = W_embed.T * gamma_final[:, None]
+    W_embed = tensors["model.language_model.embed_tokens.weight"]
+    gamma_final = tensors["model.language_model.norm.weight"]
+    W_lm_head_fused = W_embed.T * gamma_final[None ,:]
     
     # 🔥 추가된 부분: PLE 가중치도 텐서에서 뽑아오기!
     # (실제 허깅페이스 텐서 키 이름에 맞춰야 하는데, 혹시 모델에 없으면 안 터지게 .get()으로 기본값 세팅)
