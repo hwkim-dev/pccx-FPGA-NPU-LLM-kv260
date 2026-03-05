@@ -1,12 +1,26 @@
-import numpy as np
-import MMIO
-
 # Collection of FPGA acceleration functions
 
 # =====================================================================
 # 1. 범용 NPU 행렬곱 엔진 (Ping-Pong BRAM Overlapping)
 # =====================================================================
+import numpy as np
+import MMIO
+
 def run_npu_matmul(x_vec, weight_mat, mean_sq_val, use_gelu=False):
+    if MMIO.SIMULATION_MODE:
+        # 💻 [PC 시뮬레이션] NPU 하드웨어 동작을 완벽히 모사 (Mocking)
+        # 1. 0x08 레지스터에서 하려던 RMSNorm 역제곱근 스케일링
+        inv_sqrt = 1.0 / np.sqrt(mean_sq_val + 1e-6)
+        x_scaled = x_vec * inv_sqrt
+        
+        # 2. Systolic Array 거대 행렬곱
+        out = np.dot(x_scaled, weight_mat)
+        
+        # 3. 0x10 레지스터 1-Cycle GeLU 하드웨어 모사
+        if use_gelu:
+            out = 0.5 * out * (1 + np.tanh(np.sqrt(2 / np.pi) * (out + 0.044715 * out**3)))
+            
+        return out.astype(np.float16)
     """
     [FPGA] Q, K, V, O, Gate, Up, Down, LM_Head 모든 거대 행렬곱을 처리하는 코어 엔진.
     x_vec: [2048] 차원 1D 벡터
@@ -63,25 +77,31 @@ def run_npu_matmul(x_vec, weight_mat, mean_sq_val, use_gelu=False):
             next_weight = weight_mat[next_ic*32 : (next_ic+1)*32, next_oc*32 : (next_oc+1)*32]
             
             if is_ping_turn:
-                np.copyto(MMIO.pong_token, next_token)
-                np.copyto(MMIO.pong_weight, next_weight)
-                MMIO.npu_control.write(0x0C, 1) # 스위치 -> Pong
+                # 💥 Token 전송 시작 전: 0x14 번지에 0 (Token) 기록
+                MMIO.npu_control.write(0x14, 0)
                 MMIO.dma.sendchannel.transfer(MMIO.pong_token)
+                MMIO.dma.sendchannel.wait() # 스트림 섞임 방지용 대기
+
+                # 💥 Weight 전송 시작 전: 0x14 번지에 1 (Weight) 기록
+                MMIO.npu_control.write(0x14, 1)
                 MMIO.dma.sendchannel.transfer(MMIO.pong_weight)
             else:
-                np.copyto(MMIO.ping_token, next_token)
-                np.copyto(MMIO.ping_weight, next_weight)
-                MMIO.npu_control.write(0x0C, 0) # 스위치 -> Ping
+                MMIO.npu_control.write(0x14, 0)
                 MMIO.dma.sendchannel.transfer(MMIO.ping_token)
+                MMIO.dma.sendchannel.wait()
+
+                MMIO.npu_control.write(0x14, 1)
                 MMIO.dma.sendchannel.transfer(MMIO.ping_weight)
 
         # --- 2. NPU 연산 킥! ---
-        MMIO.npu_control.write(0x00, 0x01) # START 비트(Bit 0) ON!
+        # 펄스 로직 넣었으니까 이제 1 한 번 쓰면 알아서 꺼짐!
+        MMIO.npu_control.write(0x00, 0x01) 
         
-        # --- 3. 연산 완료 대기 (Polling) ---
-        while (MMIO.npu_control.read(0x04) & 0x01) == 0:
-            pass 
-            
+        # --- 3. 연산 완료 대기 (Polling 버그 수정: 0x04 -> 0x10) ---
+        while (MMIO.npu_control.read(0x10) & 0x010000) == 0: 
+            # 0x10의 16번 비트가 w_npu_done 이니까 0x010000과 AND 연산!
+            pass     
+               
         # --- 4. 결과 수신 (64번 누산이 끝난 마지막 타일에서만!) ---
         if ic == num_ic_tiles - 1:
             MMIO.dma.recvchannel.transfer(MMIO.result_buf)
@@ -109,6 +129,11 @@ def npu_matmul_gelu(x, W_gate, mean_sq):
 # 3. Softmax 가속 함수
 # =====================================================================
 def npu_softmax(logits):
+    if MMIO.SIMULATION_MODE:
+        # 💻 [PC 시뮬레이션] NPU Softmax IP 모사
+        logits_safe = logits - np.max(logits)
+        probs = np.exp(logits_safe) / np.sum(np.exp(logits_safe))
+        return probs.astype(np.float16)
     """
     [FPGA] LM Head에서 나온 256,000개의 점수를 확률값으로 변환
     """
