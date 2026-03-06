@@ -17,13 +17,15 @@ def tokenize(text):
 # 2. Embedding (Token ID -> 2048차원 벡터)
 # =====================================================================
 def embedding(token_id, W_embed_real):
-    x = W_embed_real[token_id] 
+    x = W_embed_real[token_id].astype(np.float32)
+    #  Gemma 특수 규칙: 임베딩 스케일링 (sqrt(2048))
+    x = x * math.sqrt(2048) 
     return x.astype(np.float16)
 
 # =====================================================================
 # 3. PLE (Per-Layer Embedding) 주입
 # =====================================================================
-# 🔥 파라미터로 진짜 PLE 가중치들을 받도록 수정!
+#  파라미터로 진짜 PLE 가중치들을 받도록 수정!
 def inject_ple(x, ple_proj_down, ple_embed, ple_proj_up, layer_idx=0):
     x_down = np.dot(x, ple_proj_down) 
     x_gated = x_down * ple_embed[0]
@@ -33,43 +35,55 @@ def inject_ple(x, ple_proj_down, ple_embed, ple_proj_up, layer_idx=0):
     return x_final.astype(np.float16)
 
 def cpu_qk_norm(Q, K, gamma_q, gamma_k):
-    q_inv_sqrt = 1.0 / np.sqrt(np.mean(Q**2) + 1e-6)
-    k_inv_sqrt = 1.0 / np.sqrt(np.mean(K**2) + 1e-6)
-    Q_norm = (Q * q_inv_sqrt) * gamma_q
-    K_norm = (K * k_inv_sqrt) * gamma_k
-    return Q_norm, K_norm
+    """ 
+    [CPU] Q와 K에 각각 '헤드별(Per-head)' RMSNorm 적용
+    Q: [2048] -> [8, 256]
+    K: [512]  -> [2, 256]
+    """
+    # 1. 포인터 캐스팅하듯 [헤드 수, 256] 형태로 모양(View) 변경
+    Q_reshaped = Q.reshape(-1, 256) # 8개의 헤드
+    K_reshaped = K.reshape(-1, 256) # 2개의 헤드
+    
+    # 2. 헤드별(axis=1)로 제곱의 평균 구하기 (keepdims=True로 해야 브로드캐스팅 가능)
+    q_mean_sq = np.mean(Q_reshaped.astype(np.float32)**2, axis=1, keepdims=True)
+    k_mean_sq = np.mean(K_reshaped.astype(np.float32)**2, axis=1, keepdims=True)
+    
+    q_inv_sqrt = 1.0 / np.sqrt(q_mean_sq + 1e-6)
+    k_inv_sqrt = 1.0 / np.sqrt(k_mean_sq + 1e-6)
+    
+    # 3. 각 헤드별로 Norm 적용 + 256차원 감마 스케일링
+    # Q_reshaped[8, 256] * q_inv_sqrt[8, 1] * gamma_q[256] -> 완벽하게 매핑됨!
+    Q_norm = (Q_reshaped * q_inv_sqrt) * gamma_q
+    K_norm = (K_reshaped * k_inv_sqrt) * gamma_k
+    
+    # 4. 다시 1D 벡터 [2048], [512] 로 쫙 펴서 리턴
+    return Q_norm.flatten(), K_norm.flatten()
 
 # =====================================================================
 # 5. RoPE (회전 위치 인코딩)
 # =====================================================================
 def cpu_rope(x, pos, theta_base=10000.0):
-    """
-    [CPU] 복소수 회전 행렬 연산 (차원이 작아서 CPU 연산이 빠름)
-    x: Q_norm [2048] 또는 K_norm [512]
-    """
-    dim = 256 # 헤드당 차원 (head_dim)
+    dim = 256 
     num_heads = len(x) // dim
-    
-    # [num_heads, head_dim] 형태로 View 변경 (C++ 포인터 캐스팅 느낌!)
     x_reshaped = x.reshape(num_heads, dim)
-    out = np.zeros_like(x_reshaped)
+    out = np.zeros_like(x_reshaped, dtype=np.float32)
     
     for h in range(num_heads):
-        for i in range(0, dim, 2):
-            # 주파수 계산
-            freq = 1.0 / (theta_base ** (i / dim))
+        half = dim // 2
+        for i in range(half):
+            #  Gemma/LLaMA 스타일 반갈죽(Half) 회전 로직! (짝수/홀수 아님)
+            freq = 1.0 / (theta_base ** ((2 * i) / dim))
             val = pos * freq
             cos_val = math.cos(val)
             sin_val = math.sin(val)
             
-            # 짝수/홀수 인덱스 교차 회전 연산
-            x0 = x_reshaped[h, i]
-            x1 = x_reshaped[h, i+1]
-            out[h, i]   = x0 * cos_val - x1 * sin_val
-            out[h, i+1] = x1 * cos_val + x0 * sin_val
+            x0 = x_reshaped[h, i]           # 앞부분 절반
+            x1 = x_reshaped[h, i + half]    # 뒷부분 절반
             
-    # 다시 1D 벡터로 평탄화해서 리턴
-    return out.flatten()
+            out[h, i]        = x0 * cos_val - x1 * sin_val
+            out[h, i + half] = x1 * cos_val + x0 * sin_val
+            
+    return out.flatten().astype(np.float16)
 
 # =====================================================================
 # 6. KV 캐시 업데이트 (DDR 메모리 포인터 복사)
@@ -94,8 +108,9 @@ def cpu_gqa(Q_rope, K_cache_layer, V_cache_layer):
     Q_reshaped = Q_rope.reshape(8, 256)
     
     # 캐시를 numpy 배열로 변환
-    K_mat = np.array(K_cache_layer) # [T_total, 2, 256]
-    V_mat = np.array(V_cache_layer) # [T_total, 2, 256]
+    # 캐시를 numpy 배열로 변환하고 3D 텐서로 View 캐스팅!
+    K_mat = np.array(K_cache_layer).reshape(-1, 2, 256) # [T_total, 2, 256]
+    V_mat = np.array(V_cache_layer).reshape(-1, 2, 256) # [T_total, 2, 256]
     
     attn_out = np.zeros((8, 256), dtype=np.float32)
     
@@ -105,11 +120,16 @@ def cpu_gqa(Q_rope, K_cache_layer, V_cache_layer):
         
         # 1. Attention Score 계산: Q * K^T
         # Q_reshaped[q_head] 는 [256], K_mat[:, kv_head, :] 는 [T_total, 256]
-        scores = np.dot(K_mat[:, kv_head, :], Q_reshaped[q_head]) / math.sqrt(256)
+        scores = np.dot(K_mat[:, kv_head, :].astype(np.float32), Q_reshaped[q_head].astype(np.float32)) / math.sqrt(256)
         
-        # 2. Softmax (안정성을 위해 최대값 빼기)
+        #  [Gemma 3 필수] Attention Logit Softcapping: 50.0 * tanh(score / 50.0)
+        # 없으면 어텐션 분포가 극단적으로 쏠려서 완전히 엉뚱한 결과 나옴!
+        ATTN_SOFTCAP = 50.0
+        scores = ATTN_SOFTCAP * np.tanh(scores / ATTN_SOFTCAP)
+        
+        # 2. Softmax (안정성을 위해 최대값 빼기, float32로 안전하게)
         scores = scores - np.max(scores)
-        probs = np.exp(scores) / np.sum(np.exp(scores))
+        probs = np.exp(scores.astype(np.float64)) / np.sum(np.exp(scores.astype(np.float64)))
         
         # 3. Output 계산: Score * V
         # probs 는 [T_total], V_mat[:, kv_head, :] 는 [T_total, 256]

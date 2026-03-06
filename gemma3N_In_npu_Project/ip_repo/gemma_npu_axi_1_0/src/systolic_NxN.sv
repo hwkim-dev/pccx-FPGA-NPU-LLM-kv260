@@ -5,7 +5,7 @@ module systolic_NxN #(
 )(
     input  logic clk,
     input  logic rst_n,
-    input  logic i_clear, // 🔥 외부(Top FSM)에서 받는 글로벌 클리어 신호
+    input  logic i_clear, // 외부(Top FSM)에서 받는 글로벌 클리어 신호
 
     // npu_core_top에서 '동시'에 쏟아지는 64개 데이터
     input  logic [7:0] in_a [0:ARRAY_SIZE-1], 

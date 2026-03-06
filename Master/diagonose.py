@@ -1,31 +1,38 @@
 import numpy as np
 import CPU_CORE
 import safeTensor
+import sys
 
 def rms_norm(x, gamma):
-    rms = np.sqrt(np.mean(x**2) + 1e-6)
-    return (x / rms) * gamma
+    x_f64 = x.astype(np.float64)
+    rms = np.sqrt(np.mean(x_f64**2) + 1e-6)
+    return (x / rms).astype(np.float32) * gamma
+
+def check(tag, arr):
+    has_nan = np.isnan(arr).any()
+    has_inf = np.isinf(arr).any()
+    max_val = np.max(np.abs(arr))
+    mean_val = np.mean(arr)
+    print(f"{tag:<32} | max_abs: {max_val:10.4f} | mean: {mean_val:10.4f}")
+    
+    if has_nan or has_inf or max_val > 80000:
+        print(f"\n🚨🚨🚨 [FATAL ERROR] 데이터 오염 발생: {tag} 🚨🚨🚨")
+        sys.exit(1)
 
 def gelu(x):
     return 0.5 * x * (1 + np.tanh(np.sqrt(2 / np.pi) * (x + 0.044715 * (x**3))))
 
-# 🔥 1. 무한대 방지용 안전한 Sigmoid
 def sigmoid(x):
-    # float32에서 exp()가 터지지 않게 -88 ~ 88 사이로 값을 가둬버림 (Clipping)
     x_clipped = np.clip(x, -88.0, 88.0)
     return 1.0 / (1.0 + np.exp(-x_clipped))
 
-# 🔥 2. NaN 방지용 안전한 Softmax
 def softmax(x):
-    # 가장 큰 값을 빼고 exp를 취해서 절대로 inf가 나오지 않게 만듦!
     x_safe = x - np.max(x)
     e_x = np.exp(x_safe)
     return e_x / np.sum(e_x)
 
 def main():
-    print("🚀 Gemma 3N [CPU Golden Reference] Start!")
-    
-    # 1. 모든 가중치 로드
+    print("🚀 Gemma 3N [CPU Golden Reference] Debugging Start!")
     W_embed, W_ple, norm_ple, W_ple_proj, altup_projs, altup_unprojs, W_final_norm, W_lm_head, W = safeTensor.load_local_weights()
 
     K_cache = [[] for _ in range(35)]
@@ -34,73 +41,49 @@ def main():
     prompt = "안녕 하세요"
     input_tokens = CPU_CORE.tokenize(prompt)
     
-    print(f"🔥 Start Prefill & Decode for {len(input_tokens)} tokens...")
-    
     for pos, token_id in enumerate(input_tokens):
-        print(f"[{pos+1}/{len(input_tokens)}] Token: {token_id} (pos={pos})")
+        is_last = (pos == len(input_tokens) - 1)
+        if is_last:
+            print(f"\n🔥 [Last Token Debugging] Token ID: {token_id} (pos={pos})")
         
-        # [준비 단계] 1차선 -> 4차선 분신술
-        x0 = CPU_CORE.embedding(token_id, W_embed) # [2048]
-        
+        x0 = CPU_CORE.embedding(token_id, W_embed)
         xs = np.zeros((4, 2048), dtype=np.float32)
         xs[0] = x0
         for k in range(3):
-            xs[k+1] = np.dot(x0, altup_projs[k]) # 그림자 분신 생성
-        
-        '''
-        xs
-        xs[0] = [2048] 
-        xs[1] = [2048] 
-        xs[2] = [2048] 
-        xs[3] = [2048] 
-        '''
-
-        # 해당 토큰의 PLE 가중치 덩어리 추출 [8960]
+            xs[k+1] = np.dot(x0, altup_projs[k])
+            
         ple_all = W_ple[min(token_id, W_ple.shape[0]-1)].astype(np.float32)
 
-        # [탑 등반] 35 레이어 루프
         for i in range(35):
-            # --- 1. AltUp Predict (입장 전 섞기) ---
-            # 본체(xs[0])를 기준으로 공유기 세팅 -> 비율 16개 추출
+            # --- 1. AltUp Predict ---
             r_in = rms_norm(xs[0], W["altup_rn"][i])
-
-            # [2048] * [2048,4] -> [4]
             router_logits = np.dot(r_in, W["altup_router"][i])
             r_weights = softmax(router_logits)
-
-            # [16,4] * [4] -> [4,4]
+            
             coef_mat = np.dot(W["altup_pred"][i], r_weights).reshape(4, 4)
-
-            # [4,4] * [4,2048] -> 4차선 섞기 완료!
             xs_pred = np.dot(coef_mat, xs)
 
-            # --- 2. 빡센 공부는 본체(Stream 0)만! ---
-            # Stream 0 만 루프를 통화한다.
-            x = xs[0].copy()
+            # --- 2. Stream 0 본체 훈련 ---
+            # 🔥 핵심 복구 1: 섞여서 나온 xs_pred[0]가 훈련장에 들어가야 피드백 루프가 완성됨!
+            x = xs_pred[0].copy()
             
-            # ① PLE 주입 Position-wise Layer Expansion
+            # ① PLE
             ple_slice = ple_all[i*256 : (i+1)*256]
             ple_normed = rms_norm(ple_slice, norm_ple)
-            
             gate = sigmoid(np.dot(x, W["ple_gate"][i]))            
-            
             projected = rms_norm(np.dot(gate * ple_normed, W["ple_proj"][i]), W["ple_post_ln"][i])
             x = x + projected
             
             # ② Attention 
-            # x, x_n = [2048,]
-            # W["W_q"][i] <- (2048,2048)
             x_n = rms_norm(x, W["input_ln"][i])
             Q = np.dot(x_n, W["W_q"][i])
             K = np.dot(x_n, W["W_k"][i])
             V = np.dot(x_n, W["W_v"][i])
             
-
             Q, K = CPU_CORE.cpu_qk_norm(Q, K, W["gamma_q"][i], W["gamma_k"][i])
             Q = CPU_CORE.cpu_rope(Q, pos=pos, theta_base=1_000_000)
             K = CPU_CORE.cpu_rope(K, pos=pos, theta_base=1_000_000)
             
-            # k, v (512,)
             CPU_CORE.cpu_update_kv_cache(K, V, i, K_cache, V_cache)
             attn_out = CPU_CORE.cpu_gqa(Q, K_cache[i], V_cache[i])
             x = x + rms_norm(np.dot(attn_out, W["W_o"][i]), W["post_attn_ln"][i])
@@ -112,40 +95,39 @@ def main():
             hidden   = gelu(gate_out) * up_out
             x = x + rms_norm(np.dot(hidden, W["W_down"][i]), W["post_ffn_ln"][i])
             
-            # ④ LAuReL (보정)
-            bottleneck = np.dot(x, W["laurel_left"][i]) # [2048] -> [64]
-            expanded = np.dot(bottleneck, W["laurel_right"][i]) # [64] -> [2048]
+            # ④ LAuReL
+            bottleneck = np.dot(x, W["laurel_left"][i])
+            expanded = np.dot(bottleneck, W["laurel_right"][i])
             x = x + rms_norm(expanded, W["laurel_norm"][i])
 
-            # --- 3. AltUp Correct (퇴장 전 결과 공유) ---
-            # xs[0] 1차선 훈련 전후로 얼마나 변했는지? delta = [2048]
-            delta = x - xs[0] 
-            # [2048,]* [2048,]
+            # --- 3. AltUp Correct ---
+            # 🔥 핵심 복구 2: 변화량은 훈련 전(xs_pred[0]) 대비 훈련 후(x)의 차이!
+            delta = x - xs_pred[0] 
             scaled = delta * W["altup_scale"][i]
             
-            # 아까 만든 공유기(r_weights)를 재활용해서 분신들에게 결과 배분
-            # W["altup_corr"][i] * [r_weights] = (4, 4) * [4]
-            corr_coefs = np.dot(W["altup_corr"][i], r_weights) # [4]
+            # 🔥 핵심 복구 3: 공유기 비율은 아까 Predict에서 썼던 r_weights를 그대로 재활용!
+            corr_coefs = np.dot(W["altup_corr"][i], r_weights)
             
             xs_new = xs_pred.copy()
             for k in range(4):
-                xs_new[k] += corr_coefs[k] * scaled # 각 차선 업데이트
-            xs_new[0] = x # 본체는 훈련 끝난 x로 교체
+                xs_new[k] += corr_coefs[k] * scaled
             
-            xs = xs_new # 다음 층으로 출발!
+            xs = xs_new
             
-        # [최종 출력] 마지막 토큰일 때만
-        if pos == len(input_tokens) - 1:
-            # 6. 그림자 회수 (Un-embed 합체!)
+            if is_last: 
+                check(f"L{i} Post-AltUp (Main xs[0])", xs[0])
+                check(f"L{i} Post-AltUp (Shadow xs[1])", xs[1])
+            
+        if is_last:
             x_final = xs[0].copy()
             for k in range(3):
                 x_final += np.dot(xs[k+1], altup_unprojs[k])
                 
-            # 7. LM Head (정답 외치기)
+            check("FINAL Un-embed x", x_final)
+            
             x_final = rms_norm(x_final, W_final_norm)
             logits = np.dot(x_final, W_lm_head)
             
-            # Softcap & Softmax
             FINAL_SOFTCAP = 30.0
             logits_capped = FINAL_SOFTCAP * np.tanh(logits / FINAL_SOFTCAP)
             
@@ -153,10 +135,8 @@ def main():
             probs = np.exp(logits_safe) / np.sum(np.exp(logits_safe))
             
             next_token = CPU_CORE.cpu_sample_token(probs)
-            
             print(f"\n✅ Generated Next Token ID: {next_token}")
-            decoded_text = CPU_CORE.tokenizer.decode([next_token])
-            print(f"🎉 Decoded Text: {decoded_text}")
+            print(f"🎉 Decoded Text: {CPU_CORE.tokenizer.decode([next_token])}")
 
 if __name__ == "__main__":
     main()

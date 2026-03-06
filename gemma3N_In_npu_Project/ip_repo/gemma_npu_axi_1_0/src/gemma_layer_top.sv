@@ -21,7 +21,7 @@ module gemma_layer_top (
     // -------------------------------------------------------------------
     input  logic               i_dma_we_token,
     input  logic [7:0]         i_dma_addr_token,
-    input  logic [511:0]         i_dma_wdata_token,
+    input  logic [511:0]       i_dma_wdata_token,
 
     input  logic               i_dma_we_weight,
     input  logic [7:0]         i_dma_addr_weight,
@@ -105,7 +105,7 @@ module gemma_layer_top (
     logic [7:0] raw_token_data  [0:31]; 
     logic [7:0] sys_weight_data [0:31]; 
 
-    // 🔥 [수정] 512비트 플랫(Flat) 벡터로 BRAM에서 받아서 배열로 풀기
+    // [수정] 512비트 플랫(Flat) 벡터로 BRAM에서 받아서 배열로 풀기
     logic [511:0] flat_token_data;
     logic [511:0] flat_weight_data;
 
@@ -116,7 +116,7 @@ module gemma_layer_top (
         end
     end
 
-    // 🔥 [수정] 포트 이름 완벽 일치 및 포맷 캐스팅
+    // [수정] 포트 이름 완벽 일치 및 포맷 캐스팅
     ping_pong_bram #(
         .DATA_WIDTH(512),
         .ADDR_WIDTH(9)
@@ -125,7 +125,7 @@ module gemma_layer_top (
         .switch_buffer(i_ping_pong_sel),
         .dma_we(i_dma_we_token),
         .dma_addr({1'b0, i_dma_addr_token}),          // 8bit -> 9bit 확장
-        .dma_write_data(i_dma_wdata_token), // 🔥 {504'd0, ...} 지우고 직결!        .npu_addr_a({3'd0, feed_counter}),            // 6bit -> 9bit 확장
+        .dma_write_data(i_dma_wdata_token), 
         .npu_addr_b(9'd0),                            // 안 씀
         .npu_read_data_a(flat_token_data),            // 512bit 출력
         .npu_read_data_b()                            // 안 씀
@@ -207,7 +207,7 @@ module gemma_layer_top (
         .dma_data_out(dma_result_bus)    
     );
 
-    // [정공법] 전체 버스 밖으로 노출 (DMA 준비용)
+    // [정공법] 전체 버스 밖으로 노출 (DMA 준비용)  
     assign o_npu_result_all = dma_result_bus;
 
     // 🔥 [필살기] 모든 PE(1024개)를 강제로 살려두기 위한 논리적 '닻(Anchor)'
