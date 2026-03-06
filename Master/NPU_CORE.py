@@ -8,19 +8,22 @@ import MMIO
 
 def run_npu_matmul(x_vec, weight_mat, mean_sq_val, use_gelu=False):
     if MMIO.SIMULATION_MODE:
-        # 💻 [PC 시뮬레이션] NPU 하드웨어 동작을 완벽히 모사 (Mocking)
-        # 1. 0x08 레지스터에서 하려던 RMSNorm 역제곱근 스케일링
-        inv_sqrt = 1.0 / np.sqrt(mean_sq_val + 1e-6)
-        x_scaled = x_vec * inv_sqrt
+        #  [PC 시뮬레이션] NPU 하드웨어 동작을 완벽히 모사 (Mocking)
+        # 1. RMSNorm 역제곱근 스케일링
+        inv_sqrt = 1.0 / np.sqrt(float(mean_sq_val) + 1e-6)
         
-        # 2. Systolic Array 거대 행렬곱
-        out = np.dot(x_scaled, weight_mat)
+        #  핵심 수정: FP16으로 2048차원 누산하면 오버플로우! 무조건 FP32로 올려서 계산!
+        x_f32 = x_vec.astype(np.float32) * inv_sqrt
+        w_f32 = weight_mat.astype(np.float32)
         
-        # 3. 0x10 레지스터 1-Cycle GeLU 하드웨어 모사
+        # 2. Systolic Array 거대 행렬곱 (FP32로 안전하게)
+        out = np.dot(x_f32, w_f32)
+        
+        # 3. GeLU (이미 FP32이므로 그냥 계산)
         if use_gelu:
-            out = 0.5 * out * (1 + np.tanh(np.sqrt(2 / np.pi) * (out + 0.044715 * out**3)))
+            out = 0.5 * out * (1 + np.tanh(np.sqrt(2 / np.pi) * (out + 0.044715 * (out**3))))
             
-        return out.astype(np.float16)
+        return out.astype(np.float16)   
     """
     [FPGA] Q, K, V, O, Gate, Up, Down, LM_Head 모든 거대 행렬곱을 처리하는 코어 엔진.
     x_vec: [2048] 차원 1D 벡터
@@ -73,16 +76,16 @@ def run_npu_matmul(x_vec, weight_mat, mean_sq_val, use_gelu=False):
         
         # --- 1. DMA 백그라운드 전송 (Prefetch) ---
         if next_idx < total_tiles:
-            next_token = x_vec[next_ic*32 : (next_ic+1)*32]
-            next_weight = weight_mat[next_ic*32 : (next_ic+1)*32, next_oc*32 : (next_oc+1)*32]
+            MMIO.ping_token = x_vec[next_ic*32 : (next_ic+1)*32]
+            MMIO.ping_weight = weight_mat[next_ic*32 : (next_ic+1)*32, next_oc*32 : (next_oc+1)*32]
             
             if is_ping_turn:
-                # 💥 Token 전송 시작 전: 0x14 번지에 0 (Token) 기록
+                # oken 전송 시작 전: 0x14 번지에 0 (Token) 기록
                 MMIO.npu_control.write(0x14, 0)
                 MMIO.dma.sendchannel.transfer(MMIO.pong_token)
                 MMIO.dma.sendchannel.wait() # 스트림 섞임 방지용 대기
 
-                # 💥 Weight 전송 시작 전: 0x14 번지에 1 (Weight) 기록
+                # eight 전송 시작 전: 0x14 번지에 1 (Weight) 기록
                 MMIO.npu_control.write(0x14, 1)
                 MMIO.dma.sendchannel.transfer(MMIO.pong_weight)
             else:
@@ -130,7 +133,7 @@ def npu_matmul_gelu(x, W_gate, mean_sq):
 # =====================================================================
 def npu_softmax(logits):
     if MMIO.SIMULATION_MODE:
-        # 💻 [PC 시뮬레이션] NPU Softmax IP 모사
+        #  [PC 시뮬레이션] NPU Softmax IP 모사
         logits_safe = logits - np.max(logits)
         probs = np.exp(logits_safe) / np.sum(np.exp(logits_safe))
         return probs.astype(np.float16)

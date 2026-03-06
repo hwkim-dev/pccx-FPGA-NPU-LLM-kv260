@@ -1,7 +1,7 @@
 import numpy as np
 import sys
 
-# 🔥 PC 시뮬레이션 모드 토글 (보드 오면 False로 변경!)
+#  PC 시뮬레이션 모드 토글 (보드 오면 False로 변경!)
 SIMULATION_MODE = True
 
 if not SIMULATION_MODE:
@@ -19,7 +19,7 @@ if not SIMULATION_MODE:
     result_buf  = allocate(shape=(32,), dtype=np.int16)
     print("Hardware Init Complete!")
 else:
-    print("⚠️ [PC Simulation Mode] Bypassing FPGA Hardware...")
+    print("[PC Simulation Mode] Bypassing FPGA Hardware...")
     npu_control = None
     dma = None
     

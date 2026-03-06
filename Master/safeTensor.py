@@ -1,65 +1,77 @@
 import numpy as np
 import os
 import torch
-from safetensors.torch import load_file  # numpy 대신 torch 로드!
+import glob
+from safetensors.torch import load_file
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 default_model_dir = os.path.join(base_dir, "local_gemma_3n")
 
 def load_local_weights(model_dir=default_model_dir):
-    print("Loading weights and folding RMSNorm Gammas...")
+    print("Loading FULL Gemma 3N E4B Weights (AltUp, PLE, LAuReL)...")
     tensors = {}
-    for filename in os.listdir(model_dir):
-        if filename.endswith(".safetensors"):
-            # 🔥 1. PyTorch로 안전하게 bfloat16 텐서 로드
-            pt_tensors = load_file(os.path.join(model_dir, filename))
+    st_files = sorted(glob.glob(os.path.join(model_dir, "*.safetensors")))
+    
+    for filename in st_files:
+        pt_tensors = load_file(filename)
+        for k, v in pt_tensors.items():
+            tensors[k] = v.to(torch.float32).numpy()
             
-            # 🔥 2. bfloat16 -> float16 (FP16)으로 다운캐스팅 후 Numpy 배열로 변환!
-            for k, v in pt_tensors.items():
-                tensors[k] = v.to(torch.float16).numpy()
-            
-    weights = {"W_q_fused": [], "W_k_fused": [], "W_v_fused": [], "W_o": [],
-               "W_gate_fused": [], "W_up_fused": [], "W_down": [],
-               "gamma_q": [], "gamma_k": []}
+    P = "model.language_model."
+    
+    W_embed = tensors[P + "embed_tokens.weight"]
+    W_ple = tensors[P + "embed_tokens_per_layer.weight"]
+    
+    # 🔥 모든 Norm에 다시 + 1.0 살림! (이게 없으면 라우터가 고장남)
+    norm_ple = tensors[P + "per_layer_projection_norm.weight"] + 1.0
+    W_ple_proj = tensors[P + "per_layer_model_projection.weight"].T
+
+    altup_projs = [tensors[P + f"altup_projections.{i}.weight"].T for i in range(3)]
+    altup_unprojs = [tensors[P + f"altup_unembed_projections.{i}.weight"].T for i in range(3)]
+    
+    W_final_norm = tensors[P + "norm.weight"] + 1.0
+    W_lm_head = W_embed.T.copy()
+    
+    layers = {"W_q":[], "W_k":[], "W_v":[], "W_o":[], "gamma_q":[], "gamma_k":[],
+              "input_ln":[], "post_attn_ln":[], "pre_ffn_ln":[], "post_ffn_ln":[],
+              "W_gate":[], "W_up":[], "W_down":[],
+              "ple_gate":[], "ple_proj":[], "ple_post_ln":[],
+              "laurel_left":[], "laurel_right":[], "laurel_norm":[],
+              "altup_rn":[], "altup_router":[], "altup_pred":[], "altup_corr":[], "altup_scale":[]}
 
     for i in range(35):
-        # 1. 텐서 가져오기
-        # print("Available keys in tensors:", tensors.keys())
+        lp = P + f"layers.{i}."
+        sa = lp + "self_attn."
 
-        W_q = tensors[f"model.language_model.layers.{i}.self_attn.q_proj.weight"]
-        gamma_attn = tensors[f"model.language_model.layers.{i}.input_layernorm.weight"] # [2048]
+        layers["W_q"].append(tensors[sa + "q_proj.weight"].T)
+        layers["W_k"].append(tensors[sa + "k_proj.weight"].T)
+        layers["W_v"].append(tensors[sa + "v_proj.weight"].T)
+        layers["W_o"].append(tensors[sa + "o_proj.weight"].T)
+        layers["gamma_q"].append(tensors[sa + "q_norm.weight"] + 1.0)
+        layers["gamma_k"].append(tensors[sa + "k_norm.weight"] + 1.0)
         
-        # 2. 🔥 대망의 Weight Folding (가중치 퓨전!) 🔥
-        # gamma[:, None]을 곱해주면 2048차원 벡터가 행렬의 각 '행'에 브로드캐스팅 곱셈됨
-        weights["W_q_fused"].append(W_q * gamma_attn[:, None])
-        weights["W_k_fused"].append(tensors[f"model.language_model.layers.{i}.self_attn.k_proj.weight"] * gamma_attn[None ,:])
-        weights["W_v_fused"].append(tensors[f"model.language_model.layers.{i}.self_attn.v_proj.weight"] * gamma_attn[None ,:])
-        
-        # (W_o는 Norm 직후가 아니므로 퓨전 안 함)
-        weights["W_o"].append(tensors[f"model.language_model.layers.{i}.self_attn.o_proj.weight"])
-        
-        # FFN 블록도 마찬가지로 Pre-Norm 감마를 융합!
-        gamma_ffn = tensors[f"model.language_model.layers.{i}.post_attention_layernorm.weight"]
-        weights["W_gate_fused"].append(tensors[f"model.language_model.layers.{i}.mlp.gate_proj.weight"] * gamma_ffn[None ,:])
-        weights["W_up_fused"].append(tensors[f"model.language_model.layers.{i}.mlp.up_proj.weight"] * gamma_ffn[None ,:])
-        weights["W_down"].append(tensors[f"model.language_model.layers.{i}.mlp.down_proj.weight"])
-        
-        # QK-Norm 용 감마 (이건 CPU에서 처리하므로 그냥 넘김)
-        weights["gamma_q"].append(tensors[f"model.language_model.layers.{i}.self_attn.q_norm.weight"])
-        weights["gamma_k"].append(tensors[f"model.language_model.layers.{i}.self_attn.k_norm.weight"])
+        layers["input_ln"].append(tensors[lp + "input_layernorm.weight"] + 1.0)
+        layers["post_attn_ln"].append(tensors[lp + "post_attention_layernorm.weight"] + 1.0)
+        layers["pre_ffn_ln"].append(tensors[lp + "pre_feedforward_layernorm.weight"] + 1.0)
+        layers["post_ffn_ln"].append(tensors[lp + "post_feedforward_layernorm.weight"] + 1.0)
 
-    # 임베딩 & Final Norm
-    W_embed = tensors["model.language_model.embed_tokens.weight"]
-    gamma_final = tensors["model.language_model.norm.weight"]
-    W_lm_head_fused = W_embed.T * gamma_final[None ,:]
-    
-    # 🔥 추가된 부분: PLE 가중치도 텐서에서 뽑아오기!
-    # (실제 허깅페이스 텐서 키 이름에 맞춰야 하는데, 혹시 모델에 없으면 안 터지게 .get()으로 기본값 세팅)
-    ple_down = tensors.get("model.ple_proj_down.weight", np.random.randn(2048, 256).astype(np.float16))
-    ple_emb  = tensors.get("model.ple_embed.weight", np.random.randn(1, 256).astype(np.float16))
-    ple_up   = tensors.get("model.ple_proj_up.weight", np.random.randn(256, 2048).astype(np.float16))
+        layers["W_gate"].append(tensors[lp + "mlp.gate_proj.weight"].T)
+        layers["W_up"].append(tensors[lp + "mlp.up_proj.weight"].T)
+        layers["W_down"].append(tensors[lp + "mlp.down_proj.weight"].T)
 
-    print("✅ Weight Folding & PLE Load Complete!")
-    
-    # 리턴 값에 ple 3형제 추가!
-    return W_embed, W_lm_head_fused, weights, ple_down, ple_emb, ple_up
+        layers["ple_gate"].append(tensors[lp + "per_layer_input_gate.weight"].T)
+        layers["ple_proj"].append(tensors[lp + "per_layer_projection.weight"].T)
+        layers["ple_post_ln"].append(tensors[lp + "post_per_layer_input_norm.weight"] + 1.0)
+
+        layers["laurel_left"].append(tensors[lp + "laurel.linear_left.weight"].T)
+        layers["laurel_right"].append(tensors[lp + "laurel.linear_right.weight"].T)
+        layers["laurel_norm"].append(tensors[lp + "laurel.post_laurel_norm.weight"] + 1.0)
+
+        layers["altup_rn"].append(tensors[lp + "altup.router_norm.weight"] + 1.0)
+        layers["altup_router"].append(tensors[lp + "altup.modality_router.weight"].T)
+        layers["altup_pred"].append(tensors[lp + "altup.prediction_coefs.weight"])
+        layers["altup_corr"].append(tensors[lp + "altup.correction_coefs.weight"])
+        layers["altup_scale"].append(tensors[lp + "altup.correct_output_scale"])
+
+    print("✅ All Gemma 3N Weights Loaded & Formatted!")
+    return W_embed, W_ple, norm_ple, W_ple_proj, altup_projs, altup_unprojs, W_final_norm, W_lm_head, layers
