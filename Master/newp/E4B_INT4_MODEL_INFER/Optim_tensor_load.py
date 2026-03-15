@@ -3,18 +3,16 @@ import numpy as np
 import safeTensor
 
 def get_real_memory_size(obj):
-    """
-    튜플, 리스트 안에 중첩된 Numpy 배열까지 모두 파고들어서 실제 VRAM/RAM 점유율을 정확히 계산합니다.
-    """
-    total = sys.getsizeof(obj)  # 기본 껍데기 크기
+    """It even digs into Numpy arrays nested within tuples and lists to accurately calculate the actual VRAM/RAM occupancy."""
+    total = sys.getsizeof(obj)  # Default shell size
 
     if isinstance(obj, np.ndarray):
-        # 넘파이 배열인 경우 실제 데이터 바이트 크기 합산
+        # If it is a NumPy array, add up the actual data byte size
         total += obj.nbytes
     elif isinstance(obj, (list, tuple)):
-        # 리스트나 튜플인 경우, 안의 내용물을 하나씩 꺼내서 재귀적으로 크기를 더함
+        # In the case of a list or tuple, take out the contents one by one and recursively add to the size.
         for item in obj:
-            total += get_real_memory_size(item)  # <- 핵심: 재귀 호출로 내부 요소 끝까지 파고듦!
+            total += get_real_memory_size(item)  # <- Key point: Drilling down to the end of the internal elements with recursive calls!
             
     return total
 
@@ -29,19 +27,17 @@ def calculate_memory_usage(obj):
     return format_memory_size(total_bytes)
 
 def inspect_matrix_structure(name, obj):
-    """
-    리스트, 튜플, numpy 배열의 중첩 구조를 재귀적으로 파고들어
-    실제 N x M 차원과 데이터 타입(int4, float32 등)을 반환합니다.
-    """
+    """Recursively delve into the nested structures of lists, tuples, and numpy arrays
+    Returns the actual N x M dimensions and data type (int4, float32, etc.)."""
     def _get_shape_and_type(item):
         if isinstance(item, list):
             if len(item) == 0:
                 return "Empty List"
-            # 레이어 리스트인 경우 첫 번째 원소(Layer 0)의 구조만 대표로 확인
+            # In case of a layer list, only the structure of the first element (Layer 0) is checked as representative.
             return f"List[{len(item)}] ──>  { _get_shape_and_type(item[0]) }"
             
         elif isinstance(item, tuple):
-            # 튜플인 경우 (보통 양자화된 행렬: (Packed_Weight, Scale))
+            # If it is a tuple (usually a quantized matrix: (Packed_Weight, Scale))
             inner = ", ".join([_get_shape_and_type(sub) for sub in item])
             return f"Tuple( {inner} )"
             
@@ -49,16 +45,16 @@ def inspect_matrix_structure(name, obj):
             shape_str = " x ".join(map(str, item.shape))
             dtype_str = str(item.dtype)
             
-            # 양자화 로직(quantize.py)에서 uint8 2차원 배열은 INT4가 패킹된 상태임.
-            # 1바이트(uint8)에 INT4 2개가 들어있으므로 실제 열(Column) 개수는 2배.
+            # In the quantization logic (quantize.py), the uint8 two-dimensional array is INT4 packed.
+            # Since 1 byte (uint8) contains 2 INT4s, the actual number of columns is doubled.
             if dtype_str == "uint8" and len(item.shape) == 2:
                 real_cols = item.shape[1] * 2
-                return f"[ 행렬: {shape_str} , 타입: {dtype_str} , (INT4 차원: {item.shape[0]} x {real_cols}) ]"
+                return f"[ matrix: {shape_str} , type: {dtype_str} , (INT4 dimension: {item.shape[0]} x {real_cols}) ]"
             
-            return f"[ 행렬: {shape_str} , 타입: {dtype_str} ]"
+            return f"[ matrix: {shape_str} , type: {dtype_str} ]"
             
         else:
-            return f"[ 타입: {type(item).__name__} ]"
+            return f"[Type: {type(item).__name__} ]"
 
     return _get_shape_and_type(obj)
     
@@ -70,7 +66,7 @@ def debug():
     print(f"|name|matrix|GB|MB|Mb")
     print(f"|---|---|---|---|---|")
     
-    # W 딕셔너리 내부 항목들 출력
+    # Print the items inside the W dictionary
     for key in ["altup_rn", "altup_router", "altup_pred", "input_ln", "W_q", "W_k", "W_v", 
                 "gamma_q", "gamma_k", "W_o", "laurel_left", "laurel_right", "laurel_norm", 
                 "post_attn_ln", "pre_ffn_ln", "W_gate", "W_up", "W_down", "post_ffn_ln", 
@@ -81,7 +77,7 @@ def debug():
         print(f"{key} | {inspect_matrix_structure(key, val)} | {calculate_memory_usage(val)}")
         
 
-    # 독립 변수들 출력
+    # Print independent variables
     for name, val in [("W_embed", W_embed), ("W_ple", W_ple), ("norm_ple", norm_ple), 
                       ("W_ple_proj", W_ple_proj), ("altup_projs", altup_projs), 
                       ("altup_unprojs", altup_unprojs), ("W_final_norm", W_final_norm), 
@@ -105,14 +101,14 @@ out_dir = os.path.join(base_dir, "mmap_weights")
 os.makedirs(out_dir, exist_ok=True)
 
 st_files = sorted(glob.glob(os.path.join(model_dir, "*.safetensors")))
-print(f"🚀 총 {len(st_files)}개의 Safetensors 파일을 개별 npy로 쪼갭니다...")
+print(f"Split a total of {len(st_files)} Safetensors files into individual npy...")
 
 count = 0
 for st_file in st_files:
-    print(f"📂 변환 중: {os.path.basename(st_file)}")
+    print(f"Converting: {os.path.basename(st_file)}")
     tensors = load_file(st_file)
     
-    # 미리 scale 파일이 있는지 확인하여 INT4 여부 판별
+    # Determine whether it is INT4 by checking whether there is a scale file in advance
     scale_keys = [k for k in tensors.keys() if k.endswith(".scale")]
     quantized_bases = [k[:-6] for k in scale_keys]
     
@@ -122,7 +118,7 @@ for st_file in st_files:
             
         arr = val.numpy()
         
-        # 💡 [핵심 버그 수정] INT4(양자화) 텐서는 차원이 꼬이므로 절대 뒤집지 않음!
+        # [Core bug fix] INT4 (quantization) tensor is dimensionally twisted, so it is never flipped!
         is_quantized = k in quantized_bases or k.endswith(".scale")
         needs_transpose = False
         
@@ -152,4 +148,4 @@ for st_file in st_files:
     del tensors
     gc.collect()
 
-print(f"✅ 총 {count}개 변환 완료! (INT4 보호 완벽 적용)")
+print(f"A total of {count} conversions completed! (INT4 protection fully applied)")

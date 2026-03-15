@@ -161,7 +161,7 @@ def preload_and_free(W: dict, keys: list):
             proxies.append(WeightProxy(_OBJID_TO_STABLE[id(w)], orig_shape, is_int4))
             uploaded += 1
         W[key] = proxies
-        print(f"  [{key}] {len(proxies)}개 -> VRAM (INT4={proxies[0].is_int4})")
+        print(f"[{key}] {len(proxies)} -> VRAM (INT4={proxies[0].is_int4})")
     gc.collect()
 
 def igpu_matmul(x_vec: np.ndarray, weight_data) -> np.ndarray:
@@ -215,4 +215,4 @@ def warmup():
     dummy_s = np.zeros(2048, dtype=np.float32)
     
     igpu_matmul(dummy_x, (dummy_p, dummy_s))
-    print("[iGPU] Warmup Complete! 🚀")
+    print("[iGPU] Warmup Complete! ")
