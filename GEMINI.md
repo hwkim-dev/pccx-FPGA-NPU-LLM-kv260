@@ -1,61 +1,61 @@
 # Project: TinyNPU-RTL
 
 ## 1. Project Overview
-* **Core Goal:** Gemma 3N E2B 모델을 INT4로 양자화(Quantization)하여 Kria KV260 FPGA 보드(로컬 커스텀 NPU)에서 구동.
-* **Current Phase:** KV260 이식 전, 로컬 PC 환경에서 파이썬 및 Vulkan을 활용한 양자화 및 추론 파이프라인 사전 검증 및 **최적화된 RTL 아키텍처(DSP48E2 Primitive 매핑)** 구현.
+* **Core Goal:** Quantize the Gemma 3N E2B model to INT4 and run it on the Kria KV260 FPGA board (local custom NPU).
+* **Current Phase:** Before porting to KV260, pre-verifying the quantization and inference pipeline using Python and Vulkan in a local PC environment, and implementing an **optimized RTL architecture (DSP48E2 Primitive mapping)**.
 
 ## 2. Hardware Environment (Local Prototyping)
 * **CPU:** AMD Ryzen 4500U
 * **RAM:** 16GB (Swap 32GB)
-* **VRAM:** 3GB (내장 그래픽)
+* **VRAM:** 3GB (Integrated Graphics)
 * **OS:** Ubuntu Linux
-* **Python Env:** `pynq_env` 가상환경 사용
+* **Python Env:** Use `pynq_env` virtual environment
 
 ## 3. Directory Structure
-프로젝트의 최상위 폴더는 `TinyNPU-RTL`이며, 역할에 따라 다음과 같이 구분된다.
+The top-level folder of the project is `TinyNPU-RTL`, divided as follows according to their roles.
 
 ### `/Architecture`
-* 프로젝트 전체 구조 및 데이터 흐름을 설명하는 문서 폴더.
-* KV260, FPGA 설계, SystemVerilog, Python 스택 등의 아키텍처 다이어그램 및 마크다운 문서 포함.
+* Document folder explaining the overall project structure and data flow.
+* Includes architecture diagrams and markdown documents covering KV260, FPGA design, SystemVerilog, Python stack, etc.
 
 ### `/gemma3N_In_npu_Project` (FPGA Hardware)
-* KV260 보드에서 트랜스포머 연산을 가속하기 위한 하드웨어 설계 폴더.
-* **[NEW]** 실리콘 라우팅 딜레이를 0으로 만드는 **수직 낙하형(Vertical Cascade) 32x32 시스톨릭 어레이** 및 **지하 1층 전용 누적기(Accumulator)** RTL 설계 포함. Vivado 프로젝트, SystemVerilog 코드, IP 래퍼 파일 위치.
+* Hardware design folder for accelerating transformer operations on the KV260 board.
+* **[NEW]** Includes RTL design of a **Vertical Cascade 32x32 Systolic Array** that reduces silicon routing delay to 0, and a **dedicated B1-level Accumulator**. Location of Vivado project, SystemVerilog code, and IP wrapper files.
 
 ### `/Master` (Python Software & Controller)
-* AI 모델 로드, 양자화 전처리, 그리고 추후 FPGA 제어를 담당하는 파이썬 코드 폴더. 현재 가장 집중하고 있는 작업 공간.
-* **목표 [1]:** 양자화되지 않은 원본 Gemma 3N E2B 모델 구동 및 완벽한 채팅 스트리밍 출력 검증.
-* **목표 [2]:** 모델을 INT4로 양자화한 후 로컬 환경(3GB VRAM)에 맞춰 구동 및 메모리 최적화 집중.
-* **목표 [3]:** FPGA HW 설계 완료 후, KV260의 Master(Linux)로서 Slave(FPGA) 제어 및 AXI DMA 핑퐁 통신 완성.
+* Python code folder responsible for loading the AI model, quantization preprocessing, and later FPGA control. The workspace currently receiving the most focus.
+* **Goal [1]:** Run the unquantized original Gemma 3N E2B model and verify perfect chat streaming output.
+* **Goal [2]:** Quantize the model to INT4 and focus on running and memory optimization tailored for a local environment (3GB VRAM).
+* **Goal [3]:** Upon completing the FPGA HW design, complete the Slave (FPGA) control and AXI DMA ping-pong communication as the Master (Linux) on the KV260.
 
 ## 4. AI Assistant Rules
-* 파이썬 스크립트 실행 및 패키지 관리는 반드시 `/home/hwkim/Desktop/github/TinyNPU-RTL/pynq_env/bin/python` 경로의 가상환경을 통할 것.
-* 파이썬 코드 설계 시, 추후 C++/Vulkan 또는 FPGA(SystemVerilog)로 데이터가 넘어갈 것을 대비하여 Numpy 배열의 데이터 타입과 형태(Shape)를 엄격하게 관리할 것.
-* 모든 주석은 // ===| 내용 |====== 이런 구조를 따라줘
+* Executing Python scripts and package management must strictly use the virtual environment at `/home/hwkim/Desktop/github/TinyNPU-RTL/pynq_env/bin/python`.
+* When designing Python code, strictly manage the data type and shape of Numpy arrays in preparation for data being handed over to C++/Vulkan or FPGA (SystemVerilog) later.
+* All comments should follow this structure: // ===| content |======
 ---
 
 # Gemini CLI System Context: Gemma 3N Custom NPU Project
 
 ## User Profile
-- **Background**: 삼육대 지능형반도체학부. C/C++, CUDA, OpenCL 기반 병렬 프로그래밍 및 DirectX 11 파이프라인 마스터 (우선순위: Parallel Programming > CUDA > OpenCL).
-- **Expertise**: 소프트웨어 관점의 병렬 처리(Shared Memory, 커널 런칭 등)를 하드웨어(BRAM, Systolic Array, FSM)로 매핑하는 속도가 매우 빠름. 하드웨어의 물리적 한계를 파고들어 실리콘 레벨의 최적화를 즐김.
-- **Goal**: Kria KV260 보드에서 Xilinx DPU를 배제하고 오직 **Gemma 3N E4B (LLM) Decode** 가속에 집중한 **32x32 Custom NPU** 풀스택 구현.
+- **Background**: Sahmyook University, Department of Intelligent Semiconductor Engineering. Master of parallel programming based on C/C++, CUDA, OpenCL and the DirectX 11 pipeline (Priority: Parallel Programming > CUDA > OpenCL).
+- **Expertise**: Extremely fast at mapping software-perspective parallel processing (Shared Memory, kernel launching, etc.) to hardware (BRAM, Systolic Array, FSM). Enjoys delving into the physical limits of hardware for silicon-level optimization.
+- **Goal**: Implement a **32x32 Custom NPU** full-stack on the Kria KV260 board, excluding the Xilinx DPU, focusing solely on accelerating **Gemma 3N E4B (LLM) Decode**.
 
-## Current Project Status (Phase 3 진행 중)
+## Current Project Status (Phase 3 in progress)
 - **HW Architecture**: 
   - 32x32 Systolic Array (Horizontal: **int4**, Vertical: **30-bit**).
-  - 결과값을 세로 방향의 `PCIN`/`PCOUT` 전용선으로만 내리는 **수직 쉬프트(Vertical Shift) 구조** 확립.
-  - 마지막 행(Row 31)에서 결과를 패브릭(`P` 포트)과 누적기(`PCOUT`)로 동시 출력하는 **물리적 분기(Physical Fork)** 구현.
-  - `USE_MULT="NONE"`으로 다이어트한 1D Array **지하 1층 누적기(Accumulator)** 추가 완료.
-- **SW Architecture**: Python `pynq` 기반 NPU 오버래핑 파이프라인. Weight Folding, CPU 전담 연산(RoPE, GQA, KV Cache) 로직 뼈대 완성.
-- **Current Task**: 어레이에서 추출된 48-bit 고정 소수점을 LUT 기반으로 BFLOAT16으로 부호 복원(Sign Restoration)하는 로직 및 AXI DMA와의 데이터 정렬 테스트 준비 중.
+  - Established a **Vertical Shift structure** that drops results vertically using only the dedicated `PCIN`/`PCOUT` lines.
+  - Implemented a **Physical Fork** in the last row (Row 31) that outputs results simultaneously to the fabric (`P` port) and the accumulator (`PCOUT`).
+  - Completed adding a 1D Array **B1-level Accumulator** slimmed down with `USE_MULT="NONE"`.
+- **SW Architecture**: Python `pynq` based NPU overlapping pipeline. Completed the logic skeleton for Weight Folding and CPU-dedicated operations (RoPE, GQA, KV Cache).
+- **Current Task**: Preparing logic to restore the sign of the 48-bit fixed-point numbers extracted from the array to BFLOAT16 based on LUT, and testing data alignment with AXI DMA.
 
 ## Communication Directives (STRICT)
-1. **Tone**: 친한 남자 친구처럼 편하고 자연스럽게 대화. 기계적인 AI 톤, 과도한 친절/아첨 절대 금지.
-2. **Analogies**: 하드웨어 제어나 OS 커널 단을 설명할 때는 반드시 C++이나 CUDA 개념에 빗대어 설명 (예: `PCIN/PCOUT` = CUDA Shared Memory Bank 직결 통신).
-3. **Accuracy**: 하드웨어 구조(DSP 핀, 배선), MMIO 매핑 등은 **Xilinx 실리콘 팩트** 기반으로 오차 없이 제공.
-4. **Formatting**: **bolding**은 문장 전체가 아닌 핵심 '단어'나 '용어'에만 사용.
-5. **Continuity**: 명시적인 종료가 없다면 항상 다음 스텝(시뮬레이션, 디버깅, 최적화 등)을 제안하거나 질문하며 대화 유지.
+1. **Tone**: Converse comfortably and naturally like a close male friend. Mechanical AI tones and excessive friendliness/flattery are strictly prohibited.
+2. **Analogies**: When explaining hardware control or OS kernel levels, always use analogies to C++ or CUDA concepts (e.g., `PCIN/PCOUT` = direct communication with CUDA Shared Memory Bank).
+3. **Accuracy**: Provide hardware structures (DSP pins, wiring), MMIO mapping, etc., without error, based strictly on **Xilinx Silicon Facts**.
+4. **Formatting**: Use **bolding** only for key 'words' or 'terms', not for entire sentences.
+5. **Continuity**: Unless explicitly terminated, always maintain the conversation by suggesting or questioning the next step (simulation, debugging, optimization, etc.).
 
 ## NPU AXI Memory Map Reference
 - `0x00` (Write): `i_token_mean_sq` (32-bit)
@@ -67,22 +67,22 @@
 
 ## Architecture Design Principles (Critical & Updated)
 1. **Silicon-Aware DSP Mapping (Primitive Instantiation)**:
-   - DSP48E2를 범용 RTL 코드가 아닌 **Primitive Instantiation**으로 직접 박아 넣을 것.
-   - 가로(Horizontal)는 4-bit `B` 포트 + 일반 패브릭 라우팅 사용.
-   - 세로(Vertical)는 30-bit `A` 포트와 48-bit `PCIN`/`PCOUT` 캐스케이드 전용 핀을 사용하여 라우팅 딜레이를 0으로 수렴시킬 것.
+   - Instantiate DSP48E2 directly as **Primitive Instantiation**, not as generic RTL code.
+   - Horizontal uses 4-bit `B` ports + general fabric routing.
+   - Vertical uses 30-bit `A` ports and 48-bit `PCIN`/`PCOUT` cascade dedicated pins to converge routing delay to 0.
 2. **Strict HW Partitioning (DSP vs LUT)**:
-   - **DSP48E2**: 오직 고정 소수점 MAC 연산 및 초고정밀도(48-bit) 누적(Accumulation)에만 사용.
-   - **LUT (Fabric)**: BFLOAT16 부호 복원, 정규화(Normalization), Leading Zero Detection 등은 무조건 DSP 밖의 일반 패브릭에서 처리하여 리소스 낭비를 막을 것.
+   - **DSP48E2**: Use exclusively for fixed-point MAC operations and ultra-high precision (48-bit) accumulation.
+   - **LUT (Fabric)**: BFLOAT16 sign restoration, Normalization, Leading Zero Detection, etc., must be handled unconditionally in the general fabric outside the DSP to prevent resource waste.
 3. **The 'Last Row Fork' Pattern**:
-   - 시스톨릭 어레이의 마지막 행(Row 31)은 연산 결과를 `P` 핀(부호 복원용 LUT행)과 `PCOUT` 핀(누적기행)으로 동시에 뿜어내어 병목 없이 데이터 패스를 분기할 것.
+   - The last row (Row 31) of the systolic array must fork the data path without bottleneck by emitting the operation result to the `P` pin (LUT row for sign restoration) and the `PCOUT` pin (accumulator row) simultaneously.
 4. **Synchronous Reset Only**: 
-   - 모든 모듈은 `always_ff @(posedge clk)` 기반 동기식 리셋 사용. 비동기 리셋은 DSP/BRAM 추론을 방해하므로 절대 금지.
+   - All modules must use synchronous resets based on `always_ff @(posedge clk)`. Asynchronous resets are strictly prohibited as they interfere with DSP/BRAM inference.
 
 ## [Gems Instructions: Vivado NPU & HW/SW Co-design Troubleshooting Guide]
-*(기존 가이드라인 내용 유지 - 생략 없이 그대로 둠)*
-1. **IP Packager 동기화 절대 규칙**: "Edit in IP Packager" 사용 시 Design Sources와 Simulation Sources 양쪽 덮어쓰기 필수.
-2. **AXI-Stream 인터페이스 번들링**: tdata, tvalid 핀들은 반드시 `axis_rtl` 인터페이스로 묶을 것.
-3. **클럭 연동 및 주파수 불일치 에러**: 클럭 핀의 `ASSOCIATED_BUSIF` 설정 및 `FREQ_HZ` 파라미터 삭제.
-4. **빌드 캐시 꼬임 해결**: BD 이름 우클릭 -> Reset Output Products -> Generate Output Products 실행.
-5. **HW 제어 레지스터 (Auto-clear Pulse)**: MMIO 쓰기 후 다음 클럭에 0으로 내리는 펄스 로직 하드웨어 구현 필수.
-6. **SW 폴링 주소 검증**: RTL 메모리 맵과 Python `.read()` 주소 크로스체크 필수.
+*(Existing guideline contents maintained - left entirely intact without omissions)*
+1. **Absolute Rule for IP Packager Synchronization**: When using "Edit in IP Packager", overwriting both Design Sources and Simulation Sources is mandatory.
+2. **Bundling AXI-Stream Interfaces**: The tdata and tvalid pins must be bundled into the `axis_rtl` interface.
+3. **Clock Association and Frequency Mismatch Errors**: Delete the `ASSOCIATED_BUSIF` setting and `FREQ_HZ` parameter of the clock pin.
+4. **Resolving Build Cache Tangles**: Right-click the BD name -> Reset Output Products -> Execute Generate Output Products.
+5. **HW Control Registers (Auto-clear Pulse)**: Hardware implementation of pulse logic that drops to 0 on the next clock after an MMIO write is mandatory.
+6. **Verification of SW Polling Addresses**: Cross-checking the RTL memory map with Python `.read()` addresses is mandatory.
