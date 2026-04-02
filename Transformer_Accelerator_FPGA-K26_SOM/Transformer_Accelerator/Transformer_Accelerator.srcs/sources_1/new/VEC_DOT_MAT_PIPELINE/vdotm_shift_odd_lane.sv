@@ -1,10 +1,12 @@
+`include "GLOBAL_CONST.svh"
 `timescale 1ns / 1ps
 
+`include "vdotm_Vec_Matric_MUL.svh"
 `include "Vec_Matric_MUL.svh"
 
 // Descending order
 
-module multiplier_shift_odd_lane #(
+module vdotm_shift_odd_lane #(
     parameter in_fmap_e_size = `BF16_EXP,
     parameter in_fmap_m_size = `BF16_MANTISSA
 ) (
@@ -19,9 +21,6 @@ module multiplier_shift_odd_lane #(
     output logic [in_fmap_e_size - 1:0] OUT_EXPONENT,
     output logic [in_fmap_m_size - 1:0] OUT_MANTISSA
 );
-
-
-
 
   logic [7:0] temp_SAFE_EXPONENT;
   logic [7:0] SAFE_MANTISSA;

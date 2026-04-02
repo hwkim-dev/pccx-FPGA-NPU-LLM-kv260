@@ -1,4 +1,6 @@
 `timescale 1ns / 1ps
+
+`include "GLOBAL_CONST.svh"
 `include "stlc_Array.svh"
 
 module stlc_NxN_array #(
@@ -22,9 +24,9 @@ module stlc_NxN_array #(
     input logic       inst_valid_in[0:`ARRAY_SIZE_V-1],
 
     // =| Outputs |=
-    output logic [`DSP_RESULT_SIZE-1:0] V_out      [0:`ARRAY_SIZE_V-1],
-    output logic [`DSP_RESULT_SIZE-1:0] V_ACC_out  [0:`ARRAY_SIZE_V-1],
-    output logic                        V_ACC_valid[0:`ARRAY_SIZE_V-1]
+    output logic [`DSP48E2_POUT_SIZE-1:0] V_out      [0:`ARRAY_SIZE_V-1],
+    output logic [`DSP48E2_POUT_SIZE-1:0] V_ACC_out  [0:`ARRAY_SIZE_V-1],
+    output logic                          V_ACC_valid[0:`ARRAY_SIZE_V-1]
 );
 
   // ===| Systolic Array Internal Wires |==================================
@@ -33,6 +35,7 @@ module stlc_NxN_array #(
   // Size is [Row][Col], data flows Left to Right.
   // H_in feeds into Col 0.
   logic [`STLC_MAC_UNIT_IN_H - 1 : 0] stlc_H_wire[0 : ARRAY_HORIZONTAL-1][0 : ARRAY_VERTICAL];
+  logic [`STLC_MAC_UNIT_IN_H - 1 : 0] stlc_H_REG[0 : ARRAY_HORIZONTAL-1][0 : ARRAY_VERTICAL];
 
   // Vertical logic wires (Feature Map / ACIN)
   // Size is [Row][Col], data flows Top to Bottom.
@@ -46,7 +49,7 @@ module stlc_NxN_array #(
   logic stlc_V_valid_wire[0 : ARRAY_HORIZONTAL][0 : ARRAY_VERTICAL-1];
 
   // Result shift wires (Top to Bottom)
-  logic [`DSP_RESULT_SIZE - 1 : 0] stlc_V_result_wire[0 : ARRAY_HORIZONTAL][0 : ARRAY_VERTICAL-1];
+  logic [`DSP48E2_POUT_SIZE - 1 : 0] stlc_V_result_wire[0 : ARRAY_HORIZONTAL][0 : ARRAY_VERTICAL-1];
 
   // Fabric break wires for row 15 -> 16
   logic [47:0] stlc_P_fabric_wire[0 : ARRAY_HORIZONTAL-1][0 : ARRAY_VERTICAL-1];
@@ -61,11 +64,13 @@ module stlc_NxN_array #(
   genvar i;
   generate
     for (i = 0; i < ARRAY_VERTICAL; i++) begin : assign_v_inputs
-      assign stlc_ACIN_wire[0][i] = 30'd0;  // Top row ACIN is not used (A is used directly)
+      // Top row ACIN is not used (A is used directly) 30'd0;
+      assign stlc_ACIN_wire[0][i] = '0;
       assign stlc_inst_wire[0][i] = inst_in[i];
       assign stlc_inst_valid_wire[0][i] = inst_valid_in[i];
       assign stlc_V_valid_wire[0][i] = in_valid[i];
-      assign stlc_V_result_wire[0][i] = 48'd0;  // Top row PCIN is 0
+      assign stlc_V_result_wire[0][i] = '0;
+      //48'd0;  // Top row PCIN is 0
 
       // Initialize the fabric delay line with V_in padded to 30 bits
       assign stlc_in_V_fabric[0][i] = {3'd0, V_in[i]};

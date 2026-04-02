@@ -1,3 +1,4 @@
+`include "GLOBAL_CONST.svh"
 `timescale 1ns / 1ps
 `include "stlc_Array.svh"
 
@@ -117,30 +118,42 @@ module stlc_bf16_fixed_pipeline (
         end
     end
 
-    // The 16 Parallel Shifters
+    // The 16 Parallel Shifters (With Sign & 2's Complement Handling)
     logic [431:0] shifted_mantissas; // 16 * 27-bit
 
     genvar i;
     generate
         for (i = 0; i < 16; i++) begin : gen_shifters
             logic [15:0] word;
+            logic        sign;
             logic [7:0]  e_val;
             logic [6:0]  m_val;
-            logic [26:0] base_vec;
+            logic [26:0] base_mant; // 1(implicit) + 7(m) + 12(pad) = 20 bits base
+            logic [26:0] shifted_mant;
+            logic [26:0] final_fixed;
             logic [7:0]  delta_e;
             
             assign word = shift_target_data[(i*16) +: 16];
+            assign sign = word[15];
             assign e_val = word[14:7];
             assign m_val = word[6:0];
             
-            // Add hidden bit: if exponent is 0, hidden bit is 0 (denormal), else 1
-            assign base_vec = (e_val == 0) ? {8'h0, m_val, 12'b0} : {8'h1, m_val, 12'b0};
-            assign delta_e  = shift_target_emax - e_val;
+            // 1. Prepare Magnitude (Add hidden bit)
+            // We use a 27-bit container. Hidden bit is at [20].
+            assign base_mant = (e_val == 0) ? {7'b0, 8'h0, m_val, 12'b0} : {7'b0, 8'h1, m_val, 12'b0};
+            assign delta_e   = shift_target_emax - e_val;
             
-            // The actual shift
-            assign shifted_mantissas[(i*27) +: 27] = (delta_e >= 27) ? 27'd0 : (base_vec >> delta_e);
+            // 2. Align by Shifting Right
+            assign shifted_mant = (delta_e >= 27) ? 27'd0 : (base_mant >> delta_e);
+            
+            // 3. Convert to 2's Complement if Sign is negative
+            // This is CRITICAL for DSP48E2 accumulation.
+            assign final_fixed = sign ? (~shifted_mant + 1'b1) : shifted_mant;
+            
+            assign shifted_mantissas[(i*27) +: 27] = final_fixed;
         end
     endgenerate
+
 
     // ===| Stage 3: Output Register |===
     always_ff @(posedge clk) begin

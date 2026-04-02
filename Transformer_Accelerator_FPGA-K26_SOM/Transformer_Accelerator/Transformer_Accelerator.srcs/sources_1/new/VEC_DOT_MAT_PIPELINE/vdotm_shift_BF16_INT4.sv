@@ -1,11 +1,12 @@
+`include "GLOBAL_CONST.svh"
 `timescale 1ns / 1ps
 
-
-`include "Vec_Matric_MUL.svh"
+`include "vdotm_Vec_Matric_MUL.svh"
 `include "GLOBAL_CONST.svh"
+
 // weight size = 4bit
 // feature_map size =  bf16
-module multiplier_shift_BF16_INT4(
+module vdotm_shift_BF16_INT4(
     parameter   in_weight_size = `INT4,
     parameter   in_fmap_size = `BF16,
     parameter   in_fmap_e_size = `BF16_EXP,
@@ -13,9 +14,9 @@ module multiplier_shift_BF16_INT4(
 )(
     input logic [IN_WEIGHT_SIZE - 1:0]     IN_weight,
     input logic [in_fmap_size - 1:0]    IN_feature_map,
+
     //input IN_IS_LAST,
     input logic i_valid,
-
 
     //output OUT_IS_LAST,
     output logic OUT_sign,
@@ -23,11 +24,8 @@ module multiplier_shift_BF16_INT4(
     output logic [7:0]    OUT_MANTISSA
     );
 
-
     logic SIGN;
-
     assign SIGN = IN_weight[3] ^ IN_feature_map[15];
-
 
 // ===| [+/-|Exp|M|EVEN]delay line |===========================================================
 // ===| mantissa & sign \ 4clk(total 5-clk) |=================
@@ -158,10 +156,10 @@ module multiplier_shift_BF16_INT4(
     logic OUT_branch_EXPONENT;
     logic OUT_branch_MANTISSA;
 
-    multiplier_shift_default_lane #(
+    vdotm_shift_default_lane #(
         .in_fmap_e_size(in_fmap_e_size),
         .in_fmap_m_size(in_fmap_m_size)
-    ) multiplier_shift (
+    ) vdotm_shift (
         .clk(clk),
         .rst_n(rst_n),
         .default_lane_weight(default_lane_weight),
@@ -175,10 +173,10 @@ module multiplier_shift_BF16_INT4(
         .OUT_MANTISSA(OUT_branch_MANTISSA)
     );
 
-    multiplier_shift_even_lane #(
+    vdotm_shift_even_lane #(
         .in_fmap_e_size(in_fmap_e_size),
         .in_fmap_m_size(in_fmap_m_size)
-    ) multiplier_shift (
+    ) vdotm_shift (
         .clk(clk),
         .rst_n(rst_n),
         .DELAY_SIGN(DELAY_SIGN),
@@ -191,10 +189,10 @@ module multiplier_shift_BF16_INT4(
         .OUT_MANTISSA(OUT_branch_MANTISSA)
     );
 
-    multiplier_shift_odd_lane #(
+    vdotm_shift_odd_lane #(
         .in_fmap_e_size(in_fmap_e_size),
         .in_fmap_m_size(in_fmap_m_size)
-    ) multiplier_shift (
+    ) vdotm_shift (
         .clk(clk),
         .rst_n(rst_n),
         .DELAY_SIGN(DELAY_SIGN),

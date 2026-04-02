@@ -22,7 +22,7 @@
 
 /*
 `define DSP_SUB_MOD = 2'b11
-`define DSP_INV_DIV_MOD 
+`define DSP_INV_DIV_MOD
 */
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -38,7 +38,8 @@
 `define STLC_MAC_UNIT_IN_V 27
 
 // DSP48E2_MAXOUT
-`define DSP_RESULT_SIZE 48
+`define DSP48E2_POUT_SIZE 48
+`define BFLOAT_WIDTH 16
 
 
 // ===| SYSTEM-WIDE ARCHITECTURAL CONSTANTS |==============
@@ -66,7 +67,7 @@
 
 // ========================================================
 
-// systolic delay line 
+// systolic delay line
 `define MINIMUM_DELAY_LINE_LENGTH 1
 
 // systolic delay line V | TYPE:INT4

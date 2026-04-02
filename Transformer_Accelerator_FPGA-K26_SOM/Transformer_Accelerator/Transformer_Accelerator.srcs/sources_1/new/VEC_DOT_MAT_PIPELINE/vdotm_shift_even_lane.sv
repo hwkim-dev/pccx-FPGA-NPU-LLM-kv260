@@ -1,11 +1,12 @@
+`include "GLOBAL_CONST.svh"
 `timescale 1ns / 1ps
 
-`include "Vec_Matric_MUL.svh"
+`include "vdotm_Vec_Matric_MUL.svh"
 `include "GLOBAL_CONST.svh"
 
 // Descending order
 
-module multiplier_shift_even_lane #(
+module vdotm_shift_even_lane #(
     parameter in_fmap_e_size = `BF16_EXP,
     parameter in_fmap_m_size = `BF16_MANTISSA
 ) (

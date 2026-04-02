@@ -1,6 +1,7 @@
+`include "GLOBAL_CONST.svh"
 `timescale 1ns / 1ps
 
-`include "Vec_Matric_MUL.svh"
+`include "vdotm_Vec_Matric_MUL.svh"
 `include "GLOBAL_CONST.svh"
 
 // weight size = 4bit
@@ -231,7 +232,7 @@ endfunction
 
 // input 64 -> multiplier 64
 // batch reduction 4:1 = 16 -> 4 -> 1.
-module BF16_FP32_Reduction(
+module vdotm_BF16_FP32_Reduction(
     parameter   line_length = 32,
     parameter   line_cnt = 64,
     parameter   first_reduction_cnt = 16,

@@ -1,15 +1,7 @@
-`define TRUE 1'b1
-`define FALSE 1'b0
-
-`define PREG_SIZE 48
-`define MREG_SIZE 48
-
 `define ARRAY_SIZE_H 32
 `define ARRAY_SIZE_V 32
 
 `define stlc_instruction_dispatcher_CLOCK_CONSUMPTION 1
-
-`define KV260_AXIDMA_FULL_BANDWIDTH 128
 
 // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 // DSP INSTRUCTION
@@ -22,13 +14,11 @@
 
 /*
 `define DSP_SUB_MOD = 2'b11
-`define DSP_INV_DIV_MOD 
+`define DSP_INV_DIV_MOD
 */
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-`define DSP48E2_MAXIN_H 18
-`define DSP48E2_MAXIN_V 30
-`define DSP48E2_MAXOUT 48
+
 
 // INT4 - DSP48E2_MAXIN_H
 `define STLC_MAC_UNIT_IN_H 4
@@ -37,36 +27,9 @@
 // aligned Mantissa size 27
 `define STLC_MAC_UNIT_IN_V 27
 
-// DSP48E2_MAXOUT
-`define DSP_RESULT_SIZE 48
 
 
-// ===| SYSTEM-WIDE ARCHITECTURAL CONSTANTS |==============
-
-// [AXI-Stream & DMA]
-`define AXI_DATA_WIDTH 128
-`define AXI_PORT_CNT 4
-
-// [Elastic Buffers (FIFOs)]
-`define XPM_FIFO_DEPTH 512
-
-// [Feature Map Cache (SRAM)]
-`define FMAP_CACHE_DEPTH 2048
-`define FMAP_ADDR_WIDTH 11 // log2(2048)
-
-// [Pipelining & Latency Hiding]
-// Calculated as Array H (32) + Array V (32) + Pipeline Overheads
-`define SYSTOLIC_TOTAL_LATENCY 64
-
-// [BF16 Data Formats]
-`define BF16_WIDTH 16
-`define BF16_EXP_WIDTH 8
-`define BF16_MANT_WIDTH 7
-`define FIXED_MANT_WIDTH 27
-
-// ========================================================
-
-// systolic delay line 
+// systolic delay line
 `define MINIMUM_DELAY_LINE_LENGTH 1
 
 // systolic delay line V | TYPE:INT4

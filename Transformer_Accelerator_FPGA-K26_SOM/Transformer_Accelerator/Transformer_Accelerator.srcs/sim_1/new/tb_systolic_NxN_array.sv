@@ -1,3 +1,4 @@
+`include "GLOBAL_CONST.svh"
 /*
 `timescale 1ns / 1ps
 
@@ -20,7 +21,7 @@ module tb_systolic_NxN_array;
 
     logic   is_last_op;
 
-    wire    [`DSP_RESULT_SIZE-1:0] H_out [0:ARRAY_H-1];
+    wire    [`DSP48E2_POUT_SIZE-1:0] H_out [0:ARRAY_H-1];
     //wire    [DATA_WIDTH_V-1:0] V_out [0:ARRAY_V-1];
 
     // DUT Instantiation
@@ -74,18 +75,18 @@ module tb_systolic_NxN_array;
         // 1. Initialize & Reset
         init_inputs();
         reset_uut();
-        
+
         // 2. Clear Accumulators
         clear_dsp();
 
         // 3. Drive Data (Staggered Pattern for Systolic Array)
         // Systolic array requires inputs to be shifted in time across rows/cols
         $display("[TB] Starting Data Injection...");
-        
+
         for (int cycle = 0; cycle < (ARRAY_H + ARRAY_V + 10); cycle++) begin
             @(posedge clk);
             in_valid <= 1; // Assuming RTL uses this to trigger internal logic
-            
+
             // Feed Weight (H_in) and Activation (V_in)
             for (int i = 0; i < ARRAY_H; i++) begin
                 // Only feed data if the cycle is right for the i-th row/column
@@ -99,19 +100,19 @@ module tb_systolic_NxN_array;
             end
         end
 
-        
+
 
         // 4. Wait for output propagation
         is_last_op <= 1;
         in_valid <= 0;
 
         repeat (ARRAY_H + ARRAY_V + 5) @(posedge clk);
-        
+
         is_last_op <= 0;
 
         repeat (10) @(posedge clk);
 
-        
+
 
         $display("[TB] Simulation Finished.");
         $finish;
