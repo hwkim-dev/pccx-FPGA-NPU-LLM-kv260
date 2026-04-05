@@ -3,6 +3,25 @@
 // NPU Architecture
 //`define ISA_WIDTH 32
 
+// memcpy option flags
+
+// memcpy
+`define MEMCPY_INT4 2'b00
+`define MEMCPY_INT8 2'b01
+`define MEMCPY_INT16 2'b10
+`define MEMCPY_BF16 2'b11
+
+
+`define MEMCPY_OPT_INT_IS_SCALED 4'b1000
+
+
+`define MEMCPY_FLAG_BF16_ALIGN 4'b1000
+`define MEMCPY_FLAG_BF16_ALIGN_H 4'b0100
+`define MEMCPY_FLAG_BF16_ALIGN_V 4'b0010
+//`define MEMCPY_OPT_BF16_ 4'b0
+
+
+
 `define DIM_X 1'b00
 `define DIM_Y 1'b01
 `define DIM_Z 2'b10

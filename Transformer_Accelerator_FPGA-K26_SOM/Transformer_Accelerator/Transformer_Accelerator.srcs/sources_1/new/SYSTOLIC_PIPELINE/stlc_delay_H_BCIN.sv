@@ -22,19 +22,25 @@ module stlc_delay_H_BCIN #(
   logic [DELAY_LINE_BANDWIDTH - 1:0] delay_line[0:DELAY_LINE_LENGTH-1];
 
   //logic valid_line [0:DELAY_LINE_LENGTH-1];
+  /*
+  if (!rst_n) begin
 
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
       for (int i = 0; i < DELAY_LINE_LENGTH; i++) begin
         delay_line[i] <= 0;
       end
-    end else begin
-      if (i_valid) begin
-        delay_line[0] <= D_Line_in_value;
 
-        for (int i = 1; i < DELAY_LINE_LENGTH; i++) begin
-          delay_line[i] <= delay_line[i-1];
-        end
+      //USE SRL16E / SRL32E (Shift Register LUT)
+      //instead FF
+    end else begin
+*/
+  always_ff @(posedge clk) begin
+    //USE SRL16E / SRL32E (Shift Register LUT)
+    //instead FF
+
+    if (i_valid) begin
+      delay_line[0] <= D_Line_in_value;
+      for (int i = 1; i < DELAY_LINE_LENGTH; i++) begin
+        delay_line[i] <= delay_line[i-1];
       end
     end
   end

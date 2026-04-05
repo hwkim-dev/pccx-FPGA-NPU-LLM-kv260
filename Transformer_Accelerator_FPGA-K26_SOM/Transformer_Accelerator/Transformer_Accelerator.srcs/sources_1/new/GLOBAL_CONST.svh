@@ -38,6 +38,10 @@
 `define FALSE 0
 
 
+// ===| matrix cache options |=================
+`define ALIGN_VERTICAL 2'b01
+`define ALIGN_HORIZONTAL 2'b11
+
 
 
 
@@ -71,11 +75,19 @@
 `define HP_PORT_CNT 4
 `define HP_WEIGHT_CNT(P_size, W_size) (P_size / W_size)
 
+// [ACP-Port]
+`define ACP_PORT_IN
+`define ACP_PORT_OUT
+
 `define AXI_DATA_WIDTH 128
 `define AXI_PORT_CNT 4
 
 // [Elastic Buffers (FIFOs)]
 `define XPM_FIFO_DEPTH 512
+
+
+`define XPM_FIFO_DEPTH_TINY 16
+
 
 // [Feature Map Cache (SRAM)]
 `define FMAP_CACHE_DEPTH 2048
@@ -84,6 +96,8 @@
 // [Pipelining & Latency Hiding]
 // Calculated as Array H (32) + Array V (32) + Pipeline Overheads
 `define SYSTOLIC_TOTAL_LATENCY 64
+
+
 
 
 // ========================================================

@@ -50,7 +50,7 @@ module AXIL_STAT_OUT #(
       rd_ptr <= '0;
     end else begin
       // push : upper module feeds status continuously
-      if (i_valid && !fifo_full) begin
+      if (IN_valid && !fifo_full) begin
         mem[wr_ptr[PTR_W-1:0]] <= IN_data;
         wr_ptr <= wr_ptr + 1'b1;
       end

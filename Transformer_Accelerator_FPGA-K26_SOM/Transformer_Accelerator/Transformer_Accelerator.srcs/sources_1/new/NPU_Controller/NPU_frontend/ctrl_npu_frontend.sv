@@ -8,45 +8,47 @@ module ctrl_npu_frontend (
     input logic rst_n,
     input logic IN_clear,
 
-    // AXI4-Lite Slave : PS ↔ NPU control plane
+    // AXI4-Lite Slave : PS <-> NPU control plane
     axil_if.slave S_AXIL_CTRL,
 
     // Control from Brain
     input logic IN_rd_start,
 
-    // Decoded command → Dispatcher / FSM
+    // Decoded command -> Dispatcher / FSM
     output logic [`ISA_WIDTH-1:0] OUT_RAW_instruction,
     output logic                  OUT_kick,
 
-    // Status ← Encoder / FSM
+    // Status <- Encoder / FSM
     input logic [`ISA_WIDTH:0] IN_enc_stat,
-    input logic                IN_enc_valid
+    input logic                IN_enc_valid, // FIXED: Added missing comma
 
-    input logic  IN_fetch_ready;
+    input logic IN_fetch_ready  // FIXED: Removed illegal semicolon
 );
 
   /*─────────────────────────────────────────────
-  Internal wires : AXIL_CMD_IN ↔ upper logic
+  Internal wires : AXIL_CMD_IN <-> upper logic
   ───────────────────────────────────────────────*/
   logic [`ISA_WIDTH-1:0] cmd_data;
   logic                  cmd_valid;
-  logic                  decoder_ready;
+  // logic               decoder_ready; // (Unused wire commented out)
 
-  assign  IN_fetch_ready =  IN_fetch_ready;  // FSM 붙이면 교체
+  // FIXED: Removed 'assign IN_fetch_ready = IN_fetch_ready;'
+  // (You cannot continuously assign an input to itself in SystemVerilog)
+
   assign OUT_RAW_instruction = cmd_data;
-  assign OUT_kick            = cmd_valid &  IN_fetch_ready;
+  assign OUT_kick            = cmd_valid & IN_fetch_ready;
 
   /*─────────────────────────────────────────────
-  [1-2] Communication IN : CPU → NPU
+  [1-2] Communication IN : CPU -> NPU (Using Write Channels)
   ───────────────────────────────────────────────*/
   AXIL_CMD_IN #(
       .FIFO_DEPTH(8)
   ) u_cmd_in (
-      .clk    (clk),
-      .rst_n  (rst_n),
-      .IN_clear(i_clear),
+      .clk     (clk),
+      .rst_n   (rst_n),
+      .IN_clear(IN_clear), // FIXED: Typo i_clear -> IN_clear
 
-      // AXI4-Lite Write channels (인터페이스에서 풀어서 연결)
+      // AXI4-Lite Write channels directly routed from the interface
       .s_awaddr (S_AXIL_CTRL.awaddr),
       .s_awvalid(S_AXIL_CTRL.awvalid),
       .s_awready(S_AXIL_CTRL.awready),
@@ -59,23 +61,23 @@ module ctrl_npu_frontend (
 
       .OUT_data(cmd_data),
       .OUT_valid(cmd_valid),
-      .IN_decoder_ready( IN_fetch_ready)
+      .IN_decoder_ready(IN_fetch_ready)
   );
 
   /*─────────────────────────────────────────────
-  [1-2] Communication OUT : NPU → CPU
+  [1-2] Communication OUT : NPU -> CPU (Using Read Channels)
   ───────────────────────────────────────────────*/
   AXIL_STAT_OUT #(
       .FIFO_DEPTH(8)
   ) u_stat_out (
-      .clk    (clk),
-      .rst_n  (rst_n),
-      .IN_clear(i_clear),
+      .clk     (clk),
+      .rst_n   (rst_n),
+      .IN_clear(IN_clear), // FIXED: Typo i_clear -> IN_clear
 
-      .IN_data (i_enc_stat),
-      .IN_valid(i_enc_valid),
+      .IN_data (IN_enc_stat),  // FIXED: Typo i_enc_stat -> IN_enc_stat
+      .IN_valid(IN_enc_valid), // FIXED: Typo i_enc_valid -> IN_enc_valid
 
-      // AXI4-Lite Read channels
+      // AXI4-Lite Read channels directly routed from the interface
       .s_araddr (S_AXIL_CTRL.araddr),
       .s_arvalid(S_AXIL_CTRL.arvalid),
       .s_arready(S_AXIL_CTRL.arready),

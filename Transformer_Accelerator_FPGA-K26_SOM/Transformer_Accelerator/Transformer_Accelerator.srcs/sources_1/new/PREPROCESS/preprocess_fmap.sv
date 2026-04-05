@@ -12,17 +12,21 @@
  * - Mantissa shifting to Fixed-point.
  * - SRAM Caching for broadcasting to multiple compute engines (Branch point).
  */
-module preprocess_fmap (
+module preprocess_fmap #(
+    parameter fmap_width = `ACP_PORT_IN
+) (
     input logic clk,
     input logic rst_n,
     input logic i_clear,
 
     // AXI4-Stream Interfaces from ACP
-    axis_if.slave S_AXIS_FMAP0,  // HPC0 (128-bit)
-    axis_if.slave S_AXIS_FMAP1,  // HPC1 (128-bit)
+    axis_if.slave S_AXIS_ACP_FMAP,  // ACP (128-bit)
 
     // Control from Brain
     input logic i_rd_start,
+
+
+
 
     // Output to Branch Engines (Systolic / LUT / etc.)
     output logic [`FIXED_MANT_WIDTH-1:0] o_fmap_broadcast[0:`ARRAY_SIZE_H-1][0:PIPELINE_CNT-1],
@@ -33,20 +37,20 @@ module preprocess_fmap (
 );
 
   // ===| Bridge & Alignment: 256-bit Feature Map |=======
-  logic [255:0] s_axis_fmap_combined_tdata;
-  logic         s_axis_fmap_combined_tvalid;
-  logic         s_axis_fmap_combined_tready;
+  //logic [`ACP_PORT_IN:0] s_axis_fmap_combined_tdata;
+  //logic                  s_axis_fmap_combined_tvalid;
+  //logic                  s_axis_fmap_combined_tready;
 
-  assign s_axis_fmap_combined_tdata = {S_AXIS_FMAP1.tdata, S_AXIS_FMAP0.tdata};
-  assign s_axis_fmap_combined_tvalid = S_AXIS_FMAP0.tvalid & S_AXIS_FMAP1.tvalid;
+  //assign s_axis_fmap_combined_tdata = S_AXIS_ACP_FMAP.tdata;
+  //assign s_axis_fmap_combined_tvalid = S_AXIS_FMAP0.tvalid & S_AXIS_FMAP1.tvalid;
 
-  assign S_AXIS_FMAP0.tready = s_axis_fmap_combined_tready & S_AXIS_FMAP1.tvalid;
-  assign S_AXIS_FMAP1.tready = s_axis_fmap_combined_tready & S_AXIS_FMAP0.tvalid;
+  //assign S_AXIS_FMAP0.tready = s_axis_fmap_combined_tready & S_AXIS_FMAP1.tvalid;
+  //assign S_AXIS_FMAP1.tready = s_axis_fmap_combined_tready & S_AXIS_FMAP0.tvalid;
 
   // 256-bit FIFO for FMap
-  logic [255:0] fmap_fifo_data;
-  logic         fmap_fifo_valid;
-  logic         fmap_fifo_ready;
+  logic [fmap_width:0] fmap_fifo_data;
+  logic                fmap_fifo_valid;
+  logic                fmap_fifo_ready;
 
 
   xpm_fifo_axis #(
@@ -58,9 +62,9 @@ module preprocess_fmap (
       .s_aclk(clk),
       .m_aclk(clk),
       .s_aresetn(rst_n),
-      .s_axis_tdata(s_axis_fmap_combined_tdata),
-      .s_axis_tvalid(s_axis_fmap_combined_tvalid),
-      .s_axis_tready(s_axis_fmap_combined_tready),
+      .s_axis_tdata(S_AXIS_ACP_FMAP.tdata),
+      .s_axis_tvalid(S_AXIS_ACP_FMAP.tvalid),
+      .s_axis_tready(S_AXIS_ACP_FMAP.tready),
       .m_axis_tdata(fmap_fifo_data),
       .m_axis_tvalid(fmap_fifo_valid),
       .m_axis_tready(fmap_fifo_ready)

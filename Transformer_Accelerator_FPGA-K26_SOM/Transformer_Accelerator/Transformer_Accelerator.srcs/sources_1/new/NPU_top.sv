@@ -17,8 +17,11 @@
  */
 module NPU_top (
     // Clock & Reset
-    input logic clk,
-    input logic rst_n,
+    input logic clk_core,
+    input logic rst_n_core,
+
+    input logic clk_axi,
+    input logic rst_axi_n,
 
     // Control Plane (MMIO)
     input  logic [31:0] mmio_npu_vliw,
@@ -47,28 +50,83 @@ module NPU_top (
 );
 
   logic activated_lane[0:lane_cnt-1];
+  memory_uop_t memcpy_cmd_wire;
+  memory_uop_x64_t memcpy_uop_x64_wire;
+  vdotm_uop_x64_t vdotm_uop_x64_wire;
+  mdotm_uop_x64_t mdotm_uop_x64_wire;
+
+
   npu_controller_top #() u_npu_controller_top (
-      .clk(clk),
-      .rst_n(rst_n),
+      .clk(clk_core),
+      .rst_n(rst_n_core),
       .i_clear(i_clear),
       .S_AXIL_CTRL(S_AXIL_CTRL),
-      .S_AXIS_ACP_FMAP(S_AXIS_ACP_FMAP),
-      .M_AXIS_ACP_RESULT(M_AXIS_ACP_RESULT),
-      .OUT_fmap_broadcast(),
-      .OUT_fmap_valid(),
-      .OUT_VDOTM_emax(),
 
-      .OUT_cached_emax(),
       .OUT_activate_top(),
       .OUT_activate_lane(activated_lane),
-      .OUT_emax_align(),
-
+      .OUT_result_emax_align(),
       .OUT_accm(),
       .OUT_scale(),
-      .OUT_matrix_shape(),
-      .OUT_destination_queue()
+
+      // memcpy
+      .memory_uop_x64_t(memcpy_uop_x64_wire);
+      .vdotm_uop_x64_t(vdotm_uop_x64);
+      .mdotm_uop_x64_t(mdotm_uop_x64);
   );
 
+    MEM_IO_dispatcher #(
+    ) u_MEM_IO_dispatcher (
+      .clk_core(clk_core),
+      .rst_n_core(rst_n_core),
+
+      .clk_axi(clk_axi),
+      .rst_axi_n(rst_axi_n),
+
+      axis_if.slave(S_AXI_HP0_WEIGHT),
+      axis_if.slave(S_AXI_HP1_WEIGHT),
+      axis_if.slave(S_AXI_HP2_WEIGHT),
+      axis_if.slave(S_AXI_HP3_WEIGHT),
+
+      // ACP      = featureMAP in, out (Full-Duplex), read & write at same time
+      axis_if.slave(S_AXIS_ACP_FMAP),  // Feature Map Input 0 (128-bit, HPC0)
+      axis_if.master(M_AXIS_ACP_RESULT),  // Final Result Output (128-bit)
+
+      .IN_memcpy_uop_x64(memcpy_uop_x64_wire)
+         /*
+      // ===| Weight Pipeline Control (To/From Dispatcher) |=============
+      .IN_read_addr_hp(),
+      .IN_read_en_hp(),
+      .OUT_read_data_hp(),
+
+      // ===| L2 cache Pipeline Control (To/From Dispatcher)(KV,FMAP) |==
+      .IN_acp_base_addr(),
+      .IN_acp_rx_start(),
+
+      // NPU (Internal) Compute Access (Port B)
+      .IN_npu_we(),
+      .IN_npu_addr(),
+      .IN_npu_wdata(),
+      .OUT_npu_rdata()
+      */
+    )
+
+  /*
+    // ===| Weight Pipeline Control (To/From Dispatcher) |=============
+    input  logic [`ADDR_WIDTH_L2-1:0] IN_read_addr_hp [0:3],
+    input  logic                      IN_read_en_hp   [0:3],
+    output logic [             127:0] OUT_read_data_hp[0:3],
+
+    // ===| FMAP/KV Pipeline Control (To/From Dispatcher) |============
+    // ACP (External) Memory Map Control
+    input logic [16:0] IN_acp_base_addr,  // Dispatcher tells where to store incoming FMAP
+    input logic        IN_acp_rx_start,   // Trigger to accept ACP data
+
+    // NPU (Internal) Compute Access (Port B)
+    input  logic         IN_npu_we,
+    input  logic [ 16:0] IN_npu_addr,
+    input  logic [127:0] IN_npu_wdata,
+    output logic [127:0] OUT_npu_rdata
+*/
 
   // ===| FMap Preprocessing Pipeline (The Common Path) |=======
   logic [`FIXED_MANT_WIDTH-1:0] fmap_broadcast       [0:`ARRAY_SIZE_H-1];
@@ -76,13 +134,13 @@ module NPU_top (
   logic [  `BF16_EXP_WIDTH-1:0] cached_emax_out      [0:`ARRAY_SIZE_H-1];
 
   preprocess_fmap u_fmap_pre (
-      .clk(clk),
-      .rst_n(rst_n),
+      .clk(clk_core),
+      .rst_n(rst_n_core),
       .i_clear(npu_clear),
 
       // HPC Streaming Inputs
-      .S_AXIS_FMAP0(S_AXIS_ACP_FMAP),
-      .S_AXIS_FMAP1(S_AXIS_HPC1),
+      .S_AXIS_ACP_FMAP(S_AXIS_ACP_FMAP),
+      //.S_AXIS_FMAP1(S_AXIS_HPC1),
 
       // Control
       .i_rd_start(global_sram_rd_start),
@@ -129,8 +187,8 @@ module NPU_top (
       .in_fmap_e_size(`BF16_EXP),
       .in_fmap_m_size(`BF16_MANTISSA)
   ) u_vdotm_top (
-      .clk  (clk),
-      .rst_n(rst_n),
+      .clk  (clk_core),
+      .rst_n(rst_n_core),
 
       // weight
       .i_valid  (weight_fifo_data[]),
@@ -156,8 +214,8 @@ module NPU_top (
   logic [   `BF16_EXP_WIDTH-1:0] delayed_emax_32  [0:`ARRAY_SIZE_H-1];
 
   stlc_systolic_top u_systolic_engine (
-      .clk(clk),
-      .rst_n(rst_n),
+      .clk(clk_core),
+      .rst_n(rst_n_core),
       .i_clear(npu_clear),
 
       .global_weight_valid(global_weight_valid),
@@ -189,8 +247,8 @@ module NPU_top (
   generate
     for (n = 0; n < `ARRAY_SIZE_H; n++) begin : gen_norm
       stlc_result_normalizer u_norm_seq (
-          .clk(clk),
-          .rst_n(rst_n),
+          .clk(clk_core),
+          .rst_n(rst_n_core),
           .data_in(raw_res_sum[n]),
           .e_max(delayed_emax_32[n]),
           .valid_in(raw_res_sum_valid[n]),
@@ -206,8 +264,8 @@ module NPU_top (
   logic                       packed_res_ready;
 
   FROM_stlc_result_packer u_packer (
-      .clk(clk),
-      .rst_n(rst_n),
+      .clk(clk_core),
+      .rst_n(rst_n_core),
       .row_res(norm_res_seq),
       .row_res_valid(norm_res_seq_valid),
       .packed_data(packed_res_data),
@@ -223,9 +281,9 @@ module NPU_top (
       .FIFO_MEMORY_TYPE("block"),
       .CLOCKING_MODE("common_clock")
   ) u_output_fifo (
-      .s_aclk(clk),
-      .m_aclk(clk),
-      .s_aresetn(rst_n),
+      .s_aclk(clk_core),
+      .m_aclk(clk_core),
+      .s_aresetn(rst_n_core),
       .s_axis_tdata(packed_res_data),
       .s_axis_tvalid(packed_res_valid),
       .s_axis_tready(packed_res_ready),
