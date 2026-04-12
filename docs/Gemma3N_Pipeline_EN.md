@@ -39,8 +39,9 @@ $$
 ### INT4 Dequantization
 
 $$
-w_0 = W_{packed}\ \&\ \texttt{0x0F}, \quad w_0 = w_0 - 16 \text{ (if } w_0 > 7\text{)}
+w_0 = W_{packed} \ \land \ 0x0F, \quad w_0 = w_0 - 16 \text{ (if } w_0 > 7\text{)}
 $$
+
 
 $$
 w_1 = W_{packed} \gg 4, \quad w_1 = w_1 - 16 \text{ (if } w_1 > 7\text{)}
@@ -228,9 +229,10 @@ K_norm   [2 × 256]  float32
 ### B-3. Dynamic-θ RoPE
 
 $$
-\theta = \begin{cases} 1{,}000{,}000 & i \% 5 = 4 \\ 10{,}000 & \text{otherwise} \end{cases}
+\theta = \begin{cases} 1,000,000 & i \pmod{5} = 4 \\ 10,000 & \text{otherwise} \end{cases}
 $$
 
+ 
 $$
 Q_{rope} = RoPE(Q_{norm},\ pos,\ \theta), \quad K_{rope} = RoPE(K_{norm},\ pos,\ \theta)
 $$
@@ -251,8 +253,12 @@ i < 20: \quad K\_cache[i,\ pos,\ :] = K_{rope},\quad V\_cache[i,\ pos,\ :] = V
 $$
 
 $$
-i \ge 20: \quad \begin{cases} target\_K = K\_cache[19,\ :pos{+}1,\ :] & i\%5 = 4 \\ target\_K = K\_cache[18,\ :pos{+}1,\ :] & \text{otherwise} \end{cases}
+i \ge 20: \quad \begin{cases} 
+target_K = K_{cache}[19, \ :pos+1, \ :] & i \% 5 = 4 \\ 
+target_K = K_{cache}[18, \ :pos+1, \ :] & \text{otherwise} 
+\end{cases}
 $$
+
 
 K_cache  [20 × max_seq × 512]  float16
 V_cache  [20 × max_seq × 512]  float16
@@ -447,12 +453,13 @@ target\_mag = \sqrt{Mean(xs[0]^2)}
 $$
 
 $$
-proj\_x_k = xs[k+1] \cdot altup\_unprojs[k], \quad k=0,1,2
+{proj_x}_k = xs[k+1] \cdot {altup\_unprojs}[k], \quad k=0,1,2
 $$
 
 $$
-new\_mag_k = \sqrt{Mean(proj\_x_k^2)}, \qquad proj\_x_k \mathrel{*}= \frac{target\_mag}{\max(new\_mag_k,\ 10^{-12})}
+{new\_mag}_k = \sqrt{Mean({proj\_x}_k^2)}, \qquad {proj\_x}_k \mathrel{*}= \frac{target\_mag}{\max({new\_mag}_k,\ 10^{-12})}
 $$
+
 
 altup_unprojs[k]  [2048 × 2048]  float32   (k=0,1,2)
 proj_xₖ           [1 × 2048]     float32
@@ -461,8 +468,9 @@ proj_xₖ           [1 × 2048]     float32
 **Step 2 — Average & Final Projection:**
 
 $$
-x_{final} = Mean([xs[0],\ proj\_x_0,\ proj\_x_1,\ proj\_x_2])
+x_{final} = Mean([xs[0],\ {proj\_x}_0,\ {proj\_x}_1,\ {proj\_x}_2])
 $$
+
 
 $$
 x_{final\_norm} = RMSNorm(x_{final},\ W_{final\_norm})
