@@ -1,81 +1,76 @@
 `timescale 1ns / 1ps
-`include "GEMM_Array.svh"
-`include "npu_interfaces.svh"
 `include "GLOBAL_CONST.svh"
 
 import isa_pkg::*;
 
+// ===| NPU Opcode Decoder |======================================================
+// Receives raw 64-bit VLIW instructions from the frontend FIFO.
+// Strips the 4-bit opcode, asserts the matching valid pulse for one cycle,
+// and forwards the 60-bit body to the Global Scheduler.
+// ===============================================================================
+
 module ctrl_npu_decoder (
     input logic clk,
     input logic rst_n,
-    input logic [`ISA_WIDTH-1:0] IN_raw_instruction,
-    input logic raw_instruction_pop_valid,
 
+    // ===| From Frontend |=======================================================
+    input logic [`ISA_WIDTH-1:0] IN_raw_instruction,
+    input logic                  raw_instruction_pop_valid,
+
+    // ===| Flow Control |========================================================
     output logic OUT_fetch_PC_ready,
 
+    // ===| Decoded Valid Pulses (one-hot, one cycle) |===========================
+    output logic OUT_GEMV_op_x64_valid,
+    output logic OUT_GEMM_op_x64_valid,
+    output logic OUT_memcpy_op_x64_valid,
+    output logic OUT_memset_op_x64_valid,
+    output logic OUT_cvo_op_x64_valid,
 
-    //output instruction_t OUT_inst,
-    output logic OUT_GEMV_op_x64_valid;
-    //output GEMV_op_x64_t  OUT_GEMV_op_x64;
-
-    output logic OUT_GEMM_op_x64_valid;
-    //output GEMM_op_x64_t  OUT_GEMM_op_x64;
-
-    output logic OUT_memcpy_op_x64_valid;
-    //output memcpy_op_x64_t OUT_memcpy_op_x64;
-
-    output logic OUT_memset_op_x64_valid;
-    //output memcpy_op_x64_t OUT_memset_op_x64;
-    output instruction_op_x64_t [59:0] OUT_op_x64;
+    // ===| Instruction Body (60-bit, opcode stripped) |=========================
+    output instruction_op_x64_t OUT_op_x64
 );
 
+  // ===| Internal |==============================================================
   logic [3:0] OUT_valid;
-  assign OUT_GEMV_op_x64_valid = OUT_valid[0];
-  assign OUT_GEMM_op_x64_valid = OUT_valid[1];
+  assign OUT_GEMV_op_x64_valid   = OUT_valid[0];
+  assign OUT_GEMM_op_x64_valid   = OUT_valid[1];
   assign OUT_memcpy_op_x64_valid = OUT_valid[2];
   assign OUT_memset_op_x64_valid = OUT_valid[3];
+  // CVO valid uses a separate FF (5th opcode)
+  logic cvo_valid_ff;
+  assign OUT_cvo_op_x64_valid = cvo_valid_ff;
 
-  VLIW_instruction_x64 instruction_VLIW_x64;
-
-
+  // ===| Opcode Decoder |========================================================
+  // Top 4 bits are the opcode; bottom 60 bits are the instruction body.
   always_ff @(posedge clk) begin
-    if(!rst_n) begin
-      OUT_valid <= 3'b000;
+    if (!rst_n) begin
+      OUT_valid        <= 4'b0000;
+      cvo_valid_ff     <= 1'b0;
       OUT_fetch_PC_ready <= `TRUE;
+      OUT_op_x64       <= '0;
     end else begin
-      if(raw_instruction_pop_valid) begin
+      OUT_valid      <= 4'b0000;
+      cvo_valid_ff   <= 1'b0;
 
-        OUT_memcpy_VALID <= raw_instruction_pop_valid;
-        OUT_op_x64 <= IN_raw_instruction[3 +:59];
+      if (raw_instruction_pop_valid) begin
+        // Body: bits [59:0] (opcode at [63:60] already stripped by slicing)
+        OUT_op_x64.instruction <= IN_raw_instruction[`ISA_BODY_WIDTH-1:0];
 
-      end else begin
-
-        OUT_valid <= 3'b000;
-
+        case (IN_raw_instruction[`ISA_WIDTH-1:`ISA_WIDTH-`ISA_OPCODE_WIDTH])
+          OP_GEMV:   OUT_valid <= 4'b0001;
+          OP_GEMM:   OUT_valid <= 4'b0010;
+          OP_MEMCPY: OUT_valid <= 4'b0100;
+          OP_MEMSET: OUT_valid <= 4'b1000;
+          OP_CVO:    cvo_valid_ff <= 1'b1;
+          default:   ;  // unknown opcode: drop silently
+        endcase
       end
     end
   end
 
-endmodule
+  // ===| Backpressure |==========================================================
+  // Always ready — the frontend FIFO provides buffering; the decoder is single-cycle.
+  assign OUT_fetch_PC_ready = 1'b1;
 
-/*
-case (o_inst.opcode)
-    OP_GEMV: begin
-      OUT_GEMV_op_x64  <= GEMV_op_x64_t'(IN_raw_instruction[3 +:59]);
-      OUT_valid <= 3'b0001;
-    end
-    OP_GEMM: begin
-      OUT_GEMM_op_x64 <= GEMM_op_x64_t'(IN_raw_instruction[3 +:59]);
-      OUT_valid <= 3'b0010;
-    end
-    OP_MEMCPY: begin
-      OUT_memcpy_op_x64 <= memcpy_op_x64_t'(IN_raw_instruction[3 +:59]);
-      OUT_valid <= 3'b0100;
-    end
-    OP_MEMSET: begin
-      OUT_memset_op_x64 <= memset_op_x64_t'(IN_raw_instruction[3 +:59]);
-      OUT_valid <= 3'b1000;
-    end
-    default: o_valid <= 1'b0;  // unknown opcode
-endcase
-*/
+endmodule

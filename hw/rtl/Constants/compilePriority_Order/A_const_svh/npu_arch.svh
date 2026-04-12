@@ -11,6 +11,14 @@
 
 // ===| ISA |=====================================================================
 `define ISA_WIDTH                   64   // VLIW instruction word width (bits)
+`define ISA_OPCODE_WIDTH             4   // Top 4 bits of every instruction
+`define ISA_BODY_WIDTH              60   // Instruction body after opcode is stripped
+
+// ISA compilation mode selectors (used by ctrl_npu_decoder and test benches)
+`define MOD_X64                      1   // 64-bit VLIW mode (active)
+`define MOD_X32                      0   // 32-bit mode (legacy, unused)
+`define U_OPERATION_WIDTH           59   // Usable body bits (ISA_BODY_WIDTH - 1 header)
+`define INST_HEAD_ARCH_MOD_BIT       1   // Architecture mode selector bit position
 
 // ===| Systolic Array (Matrix Core) |============================================
 `define ARRAY_SIZE_H                32   // Horizontal: number of PE columns
