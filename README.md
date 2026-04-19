@@ -269,3 +269,4 @@ GitHub Pages site.
 
 Apache 2.0 — same as pccx. This protects the architecture from patent
 risk while keeping the ecosystem open for hardware research.
+
