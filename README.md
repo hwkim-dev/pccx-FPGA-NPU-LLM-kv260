@@ -210,6 +210,29 @@ Details: [KV cache strategy →](https://hwkim-dev.github.io/pccx/en/docs/v002/A
 
 ---
 
+## Roadmap — Two-Track
+
+This repository hosts the RTL for **both** active tracks. As of
+2026-04-20:
+
+| Track | Target model | Goal | Horizon | Shared RTL assets |
+|-------|-------------|------|---------|-------------------|
+| **v002 Extended** (this repo, `main`) | Gemma 3N E4B | **20 tok/s** measured | Week 1–49 | sparse weight fetcher (Phase G), EAGLE draft/verify dispatch (Phase H+), SSD scheduler (Phase I), tree mask generator (Phase J) |
+| **v003** (future branch) | Gemma 4 E4B | **12–15 tok/s** | Week 16–52 (parallel) | reuses v002 Phase G/H/I/J modules with hidden/layer/KV-head re-parameterization |
+
+- v002 freeze → snapshotted into `pccx/codes/v002/` via the pccx
+  version-cutover workflow (`tools/freeze_active.sh`).
+- v003 lives on a later branch of this same repo; the pccx docs site
+  will fork its own `v003/` docs tree at the same time.
+
+Full phase-by-phase plan, decision points, compute budget, and Year 2
+**Auto-Porting Pipeline α** vision:
+
+**→ [Roadmap (EN)](https://hwkim-dev.github.io/pccx/en/docs/roadmap.html)**
+&nbsp;·&nbsp; [**한국어**](https://hwkim-dev.github.io/pccx/ko/docs/roadmap.html)
+
+---
+
 ## Implementation Status
 
 | Block                                            | Status         |
