@@ -1,90 +1,100 @@
 `timescale 1ns / 1ps
 
+// ===============================================================================
+// Module: GEMM_systolic_array
+// Phase : pccx v002 (W4A8, 1 DSP = 2 MAC)
+//
+// Role
+// ----
+//   32 × 32 physical PE grid with a cascade break at row 16 (= logical
+//   "32 × 16 × 2" split). Each PE is a GEMM_dsp_unit that packs two INT4
+//   weights into the DSP A-port and multiplies them against an INT8
+//   activation flowing down the column via B-port cascade.
+//
+//   Row 0 : GEMM_dsp_unit with IS_TOP_ROW = 1. Activation sourced from
+//           V_in[col] fabric input.
+//   Row 16: GEMM_dsp_unit with BREAK_CASCADE = 1. Activation re-injected
+//           from the fabric delay line, partial sum takes the C-port
+//           instead of PCIN.
+//   Row 31: GEMM_dsp_unit_last_ROW. Exposes 48-bit P as `V_ACC_out[col]`.
+//   Others: GEMM_dsp_unit normal row. Activation via BCIN cascade,
+//           partial sum via PCIN cascade.
+// ===============================================================================
+
 `include "GLOBAL_CONST.svh"
 `include "GEMM_Array.svh"
 
 module GEMM_systolic_array #(
-    parameter array_horizontal = `ARRAY_SIZE_H,
-    parameter array_vertical = `ARRAY_SIZE_V,
-    parameter h_in_size = `GEMM_MAC_UNIT_IN_H,
-    parameter v_in_size = `GEMM_MAC_UNIT_IN_V
+  parameter array_horizontal = `ARRAY_SIZE_H,
+  parameter array_vertical   = `ARRAY_SIZE_V,
+  parameter INT4_BITS        = `INT4_WIDTH,
+  parameter INT8_BITS        = 8,
+  parameter B_PORT_W         = `DEVICE_DSP_B_WIDTH
 ) (
-    input logic clk,
-    input logic rst_n,
-    input logic i_clear,
+  input logic clk,
+  input logic rst_n,
+  input logic i_clear,
 
-    // =| Global Controls |=
-    input logic i_weight_valid,  // Enables horizontal weight shifting
+  // ===| Global controls |========================================================
+  input logic i_weight_valid,
 
-    // =| Delay line input (from FMap Cache and Weight Dispatcher) |=
-    input logic [h_in_size-1:0] H_in[0:array_horizontal-1],
-    input logic [v_in_size-1:0] V_in[0:array_vertical-1],
-    input logic in_valid[0:array_vertical-1],  // Staggered valid from FMap delay line
+  // ===| Horizontal weight streams (two INT4 lanes, one pair per row) |==========
+  input logic [INT4_BITS-1:0] H_in_upper [0:array_horizontal-1],
+  input logic [INT4_BITS-1:0] H_in_lower [0:array_horizontal-1],
 
-    // =| VLIW Instruction Input (Staggered along with V_in) |=
-    input logic [2:0] inst_in      [0:array_horizontal-1],
-    input logic       inst_valid_in[  0:array_vertical-1],
+  // ===| Vertical INT8 activation (one per column) |=============================
+  input logic [INT8_BITS-1:0] V_in       [0:array_vertical-1],
 
-    // =| Outputs |=
-    output logic [`DSP48E2_POUT_SIZE-1:0] V_out      [   0:array_horizontal-1],
-    output logic [`DSP48E2_POUT_SIZE-1:0] V_ACC_out  [   0:array_horizontal-1],
-    output logic                          V_ACC_valid[0:array_horizontalE_V-1]
+  // ===| Staggered activation valid + VLIW instruction (per column) |============
+  input logic                 in_valid      [0:array_vertical-1],
+  input logic [2:0]           inst_in       [0:array_horizontal-1],
+  input logic                 inst_valid_in [0:array_vertical-1],
+
+  // ===| Outputs (bottom row) |==================================================
+  output logic [`DSP48E2_POUT_SIZE-1:0] V_out       [0:array_horizontal-1],
+  output logic [`DSP48E2_POUT_SIZE-1:0] V_ACC_out   [0:array_horizontal-1],
+  output logic                          V_ACC_valid [0:array_vertical-1]
 );
 
-  // ===| Systolic Array Internal Wires |==================================
+  // ===| Horizontal weight wires (shift-register chain, one per lane) |==========
+  logic [INT4_BITS-1:0] gemm_H_upper_wire [0:array_horizontal-1][0:array_vertical];
+  logic [INT4_BITS-1:0] gemm_H_lower_wire [0:array_horizontal-1][0:array_vertical];
 
-  // Horizontal logic wires (Weights)
-  // Size is [Row][Col], data flows Left to Right.
-  // H_in feeds into Col 0.
-  logic [`GEMM_MAC_UNIT_IN_H - 1 : 0] gemm_H_wire[0 : array_horizontal-1][0 : array_vertical];
-  logic [`GEMM_MAC_UNIT_IN_H - 1 : 0] gemm_H_REG[0 : array_horizontal-1][0 : array_vertical];
+  // ===| Vertical activation cascade (DSP BCOUT -> BCIN chain) |=================
+  logic [B_PORT_W-1:0] gemm_BCIN_wire [0:array_horizontal][0:array_vertical-1];
 
-  // Vertical logic wires (Feature Map / ACIN)
-  // Size is [Row][Col], data flows Top to Bottom.
-  logic [29:0] gemm_ACIN_wire[0 : array_horizontal][0 : array_vertical-1];
+  // ===| Instruction / valid / partial-sum wires (top->bottom) |=================
+  logic [2:0]                         gemm_inst_wire       [0:array_horizontal][0:array_vertical-1];
+  logic                               gemm_inst_valid_wire [0:array_horizontal][0:array_vertical-1];
+  logic                               gemm_V_valid_wire    [0:array_horizontal][0:array_vertical-1];
+  logic [`DSP48E2_POUT_SIZE-1:0]      gemm_V_result_wire   [0:array_horizontal][0:array_vertical-1];
 
-  // Instruction logic wires (Top to Bottom)
-  logic [2:0] gemm_inst_wire[0 : array_horizontal][0 : array_vertical-1];
-  logic gemm_inst_valid_wire[0 : array_horizontal][0 : array_vertical-1];
+  // ===| Fabric break wires for row 15 -> 16 |===================================
+  logic [`DSP48E2_POUT_SIZE-1:0]      gemm_P_fabric_wire   [0:array_horizontal-1][0:array_vertical-1];
 
-  // Valid signal logic wires (Top to Bottom)
-  logic gemm_V_valid_wire[0 : array_horizontal][0 : array_vertical-1];
+  // ===| Fabric activation delay line (used by the break row) |=================
+  logic [INT8_BITS-1:0] gemm_in_V_fabric [0:array_horizontal][0:array_vertical-1];
 
-  // Result shift wires (Top to Bottom)
-  logic [`DSP48E2_POUT_SIZE - 1 : 0] gemm_V_result_wire[0 : array_horizontal][0 : array_vertical-1];
-
-  // Fabric break wires for row 15 -> 16
-  logic [47:0] gemm_P_fabric_wire[0 : array_horizontal-1][0 : array_vertical-1];
-
-  // V_in fabric delay line to replace A_fabric_wire
-  logic [29:0] gemm_in_V_fabric[0 : array_horizontal][0 : array_vertical-1];
-
-  // ======================================================================
-
-  // ===| Input Assignments |==============================================
-  // >>>| TOP INPUT LANE |<<<
+  // ===| Input assignments (top lane / column-0 lane) |==========================
   genvar i;
   generate
     for (i = 0; i < array_vertical; i++) begin : assign_v_inputs
-      // Top row ACIN is not used (A is used directly) 30'd0;
-      assign gemm_ACIN_wire[0][i] = '0;
-      assign gemm_inst_wire[0][i] = inst_in[i];
-      assign gemm_inst_valid_wire[0][i] = inst_valid_in[i];
-      assign gemm_V_valid_wire[0][i] = in_valid[i];
-      assign gemm_V_result_wire[0][i] = '0;
-      //48'd0;  // Top row PCIN is 0
-
-      // Initialize the fabric delay line with V_in padded to 30 bits
-      assign gemm_in_V_fabric[0][i] = {3'd0, V_in[i]};
+      // Top-row cascades are unused (B_INPUT = DIRECT at row 0).
+      assign gemm_BCIN_wire[0][i]        = '0;
+      assign gemm_inst_wire[0][i]        = inst_in[i];
+      assign gemm_inst_valid_wire[0][i]  = inst_valid_in[i];
+      assign gemm_V_valid_wire[0][i]     = in_valid[i];
+      assign gemm_V_result_wire[0][i]    = '0;
+      assign gemm_in_V_fabric[0][i]      = V_in[i];
     end
 
     for (i = 0; i < array_horizontal; i++) begin : assign_h_inputs
-      assign gemm_H_wire[i][0] = H_in[i];
+      assign gemm_H_upper_wire[i][0] = H_in_upper[i];
+      assign gemm_H_lower_wire[i][0] = H_in_lower[i];
     end
   endgenerate
 
-  // >>>| Normal Lane |<<<
-  // Fabric delay line for V_in to reach row 16 correctly
+  // ===| Fabric delay line for V_in (feeds the break row) |======================
   genvar d_row, d_col;
   generate
     for (d_row = 0; d_row < array_horizontal; d_row++) begin : v_delay_row
@@ -98,7 +108,7 @@ module GEMM_systolic_array #(
     end
   endgenerate
 
-  // ===| 2D Array Instantiation |=========================================
+  // ===| 2D array instantiation |================================================
   genvar row, col;
   generate
     for (row = 0; row < array_horizontal; row++) begin : gemm_row_loop
@@ -112,16 +122,19 @@ module GEMM_systolic_array #(
               .rst_n(rst_n),
               .i_clear(i_clear),
 
-              .i_valid(gemm_V_valid_wire[row][col]),
+              .i_valid        (gemm_V_valid_wire[row][col]),
               .inst_valid_in_V(gemm_inst_valid_wire[row][col]),
-              .i_weight_valid(i_weight_valid),
-              .o_valid(gemm_V_valid_wire[row+1][col]),
+              .i_weight_valid (i_weight_valid),
+              .o_valid        (gemm_V_valid_wire[row+1][col]),
 
-              .in_H (gemm_H_wire[row][col]),
-              .out_H(gemm_H_wire[row][col+1]),
+              .in_H_upper (gemm_H_upper_wire[row][col]),
+              .out_H_upper(gemm_H_upper_wire[row][col+1]),
+              .in_H_lower (gemm_H_lower_wire[row][col]),
+              .out_H_lower(gemm_H_lower_wire[row][col+1]),
 
-              .ACIN_in  (gemm_ACIN_wire[row][col]),
-              .ACOUT_out(gemm_ACIN_wire[row+1][col]),
+              .in_V      (gemm_in_V_fabric[row][col]),
+              .BCIN_in   (gemm_BCIN_wire[row][col]),
+              .BCOUT_out (gemm_BCIN_wire[row+1][col]),
 
               .instruction_in_V (gemm_inst_wire[row][col]),
               .instruction_out_V(gemm_inst_wire[row+1][col]),
@@ -134,55 +147,62 @@ module GEMM_systolic_array #(
           );
         end else if (row == 16) begin : break_row
           GEMM_dsp_unit #(
-              .IS_TOP_ROW(0),
+              .IS_TOP_ROW   (0),
               .BREAK_CASCADE(1)
           ) dsp_unit_break (
               .clk(clk),
               .rst_n(rst_n),
               .i_clear(i_clear),
 
-              .i_valid(gemm_V_valid_wire[row][col]),
+              .i_valid        (gemm_V_valid_wire[row][col]),
               .inst_valid_in_V(gemm_inst_valid_wire[row][col]),
-              .i_weight_valid(i_weight_valid),
-              .o_valid(gemm_V_valid_wire[row+1][col]),
+              .i_weight_valid (i_weight_valid),
+              .o_valid        (gemm_V_valid_wire[row+1][col]),
 
-              .in_H (gemm_H_wire[row][col]),
-              .out_H(gemm_H_wire[row][col+1]),
+              .in_H_upper (gemm_H_upper_wire[row][col]),
+              .out_H_upper(gemm_H_upper_wire[row][col+1]),
+              .in_H_lower (gemm_H_lower_wire[row][col]),
+              .out_H_lower(gemm_H_lower_wire[row][col+1]),
 
-              // Take delayed input from fabric shift register instead of CASCADE
-              .in_V(gemm_in_V_fabric[row][col]),
-              .ACIN_in(30'd0),
-              .ACOUT_out(gemm_ACIN_wire[row+1][col]),
+              // Break row re-injects activation from the fabric delay line
+              // (B_INPUT = DIRECT is forced by BREAK_CASCADE inside the unit).
+              .in_V      (gemm_in_V_fabric[row][col]),
+              .BCIN_in   ('0),
+              .BCOUT_out (gemm_BCIN_wire[row+1][col]),
 
               .instruction_in_V (gemm_inst_wire[row][col]),
               .instruction_out_V(gemm_inst_wire[row+1][col]),
               .inst_valid_out_V (gemm_inst_valid_wire[row+1][col]),
 
-              // Take result from previous row's P fabric out
+              // Take partial sum from the previous row's fabric P-out.
               .V_result_in (gemm_P_fabric_wire[row-1][col]),
               .V_result_out(gemm_V_result_wire[row+1][col]),
               .P_fabric_out(gemm_P_fabric_wire[row][col])
           );
         end else begin : normal_row
           GEMM_dsp_unit #(
-              .IS_TOP_ROW(row == 0 ? 1 : 0),
+              .IS_TOP_ROW   (row == 0 ? 1 : 0),
               .BREAK_CASCADE(0)
           ) dsp_unit (
               .clk(clk),
               .rst_n(rst_n),
               .i_clear(i_clear),
 
-              .i_valid(gemm_V_valid_wire[row][col]),
+              .i_valid        (gemm_V_valid_wire[row][col]),
               .inst_valid_in_V(gemm_inst_valid_wire[row][col]),
-              .i_weight_valid(i_weight_valid),
-              .o_valid(gemm_V_valid_wire[row+1][col]),
+              .i_weight_valid (i_weight_valid),
+              .o_valid        (gemm_V_valid_wire[row+1][col]),
 
-              .in_H (gemm_H_wire[row][col]),
-              .out_H(gemm_H_wire[row][col+1]),
+              .in_H_upper (gemm_H_upper_wire[row][col]),
+              .out_H_upper(gemm_H_upper_wire[row][col+1]),
+              .in_H_lower (gemm_H_lower_wire[row][col]),
+              .out_H_lower(gemm_H_lower_wire[row][col+1]),
 
-              .in_V(row == 0 ? {3'd0, V_in[col]} : 30'd0),
-              .ACIN_in(gemm_ACIN_wire[row][col]),
-              .ACOUT_out(gemm_ACIN_wire[row+1][col]),
+              // Top row: take INT8 activation from fabric V_in (driven via the
+              // delay line's row-0 slot). Other rows: BCIN cascade.
+              .in_V      (row == 0 ? gemm_in_V_fabric[row][col] : {INT8_BITS{1'b0}}),
+              .BCIN_in   (gemm_BCIN_wire[row][col]),
+              .BCOUT_out (gemm_BCIN_wire[row+1][col]),
 
               .instruction_in_V (gemm_inst_wire[row][col]),
               .instruction_out_V(gemm_inst_wire[row+1][col]),
@@ -196,17 +216,15 @@ module GEMM_systolic_array #(
       end
     end
 
-    // Accumulators for the final row
+    // ===| Accumulator at the final row |========================================
     for (col = 0; col < array_vertical; col++) begin : gemm_ACC_col_loop
       assign V_ACC_valid[col] = gemm_inst_valid_wire[array_horizontal][col];
       GEMM_accumulator #() gemm_ACC (
-          .clk(clk),
-          .rst_n(rst_n),
+          .clk    (clk),
+          .rst_n  (rst_n),
           .i_clear(i_clear),
-          // Accumulator should trigger when the last row outputs a valid result
           .i_valid(V_ACC_valid[col]),
-          // PCIN connects to the V_result_out of the LAST_ROW (which is stored in [array_horizontal])
-          .PCIN(gemm_V_result_wire[array_horizontal][col]),
+          .PCIN   (gemm_V_result_wire[array_horizontal][col]),
           .gemm_ACC_result(V_ACC_out[col])
       );
     end

@@ -196,6 +196,22 @@ module NPU_top (
   logic                          raw_res_sum_valid[0:`ARRAY_SIZE_H-1];
   logic [   `BF16_EXP_WIDTH-1:0] delayed_emax_32  [0:`ARRAY_SIZE_H-1];
 
+  // ===| v002 dual-lane weight unpack |=========================================
+  // HP0 / HP1 each carry a 128-bit AXIS word that holds 32 INT4 weights.
+  // Slice each into a 32-element INT4 array for the systolic engine.
+  localparam int WEIGHT_CNT = `HP_PORT_SINGLE_WIDTH / `INT4_WIDTH;  // 32
+  logic [`INT4_WIDTH-1:0] hp0_weight_int4 [0:WEIGHT_CNT-1];
+  logic [`INT4_WIDTH-1:0] hp1_weight_int4 [0:WEIGHT_CNT-1];
+  genvar wi;
+  generate
+    for (wi = 0; wi < WEIGHT_CNT; wi++) begin : g_weight_unpack
+      assign hp0_weight_int4[wi] =
+          M_CORE_HP0_WEIGHT.tdata[wi*`INT4_WIDTH +: `INT4_WIDTH];
+      assign hp1_weight_int4[wi] =
+          M_CORE_HP1_WEIGHT.tdata[wi*`INT4_WIDTH +: `INT4_WIDTH];
+    end
+  endgenerate
+
   GEMM_systolic_top #() u_systolic_engine (
       .clk    (clk_core),
       .rst_n  (rst_n_core),
@@ -209,9 +225,15 @@ module NPU_top (
       .IN_fmap_broadcast_valid(fmap_broadcast_valid),
       .IN_cached_emax_out     (cached_emax_out),
 
-      .IN_weight_fifo_data (M_CORE_HP0_WEIGHT.tdata),
-      .IN_weight_fifo_valid(M_CORE_HP0_WEIGHT.tvalid),
-      .weight_fifo_ready   (M_CORE_HP0_WEIGHT.tready),
+      // v002 dual-lane weights: HP0 → upper INT4 channel, HP1 → lower.
+      // Both 128-bit AXIS streams are unpacked into 32 × INT4 arrays by a
+      // simple bit-slice assign just before this instantiation.
+      .IN_weight_upper      (hp0_weight_int4),
+      .IN_weight_upper_valid(M_CORE_HP0_WEIGHT.tvalid),
+      .IN_weight_upper_ready(M_CORE_HP0_WEIGHT.tready),
+      .IN_weight_lower      (hp1_weight_int4),
+      .IN_weight_lower_valid(M_CORE_HP1_WEIGHT.tvalid),
+      .IN_weight_lower_ready(M_CORE_HP1_WEIGHT.tready),
 
       .raw_res_sum      (raw_res_sum),
       .raw_res_sum_valid(raw_res_sum_valid),

@@ -1,42 +1,65 @@
-`include "GLOBAL_CONST.svh"
 `timescale 1ns / 1ps
+
+// ===============================================================================
+// Module: GEMM_dsp_unit_last_ROW
+// Phase : pccx v002 (W4A8, 1 DSP = 2 MAC)
+//
+// Role
+// ----
+//   Specialized PE for the bottom row of the 32 × 32 systolic array. Same
+//   W4A8 dual-MAC datapath as GEMM_dsp_unit, but exposes the 48-bit P as
+//   `gemm_unit_results` so the result packer / barrel-shifter can sample it
+//   directly (there is no next row to cascade into).
+//
+//   See GEMM_dsp_unit.sv for the full data-flow description.
+// ===============================================================================
+
+`include "GLOBAL_CONST.svh"
 `include "GEMM_Array.svh"
 
 module GEMM_dsp_unit_last_ROW #(
-    parameter IS_TOP_ROW = 0  // By definition, last row is 0, but added for consistency if needed
+  parameter IS_TOP_ROW  = 0,     // kept for symmetry with GEMM_dsp_unit
+  parameter INT4_BITS   = `INT4_WIDTH,
+  parameter INT8_BITS   = 8,
+  parameter A_PORT_W    = `DEVICE_DSP_A_WIDTH,
+  parameter B_PORT_W    = `DEVICE_DSP_B_WIDTH,
+  parameter P_PORT_W    = `DSP48E2_POUT_SIZE,
+  parameter UPPER_SHIFT = 21
 ) (
-    input logic clk,
-    input logic rst_n,
+  input  logic clk,
+  input  logic rst_n,
+  input  logic i_clear,
 
-    input  logic i_clear,
-    input  logic i_valid,
-    input  logic inst_valid_in_V,
-    input  logic i_weight_valid,
-    output logic o_valid,
+  input  logic i_valid,
+  input  logic i_weight_valid,
+  input  logic inst_valid_in_V,
+  output logic o_valid,
 
-    // [Horizontal] int4 (4-bit) -> DSP B port
-    input  logic [`GEMM_MAC_UNIT_IN_H - 1:0] in_H,
-    output logic [`GEMM_MAC_UNIT_IN_H - 1:0] out_H,
+  // ===| Horizontal weight shift-registers |=====================================
+  input  logic [INT4_BITS-1:0] in_H_upper,
+  output logic [INT4_BITS-1:0] out_H_upper,
+  input  logic [INT4_BITS-1:0] in_H_lower,
+  output logic [INT4_BITS-1:0] out_H_lower,
 
-    // [Vertical] 30-bit -> DSP ACIN port
-    input  logic [29:0] ACIN_in,
-    output logic [29:0] ACOUT_out,
+  // ===| Vertical INT8 activation |==============================================
+  input  logic [INT8_BITS-1:0] in_V,
+  input  logic [B_PORT_W-1:0]  BCIN_in,
+  output logic [B_PORT_W-1:0]  BCOUT_out,
 
-    // [3-Bit VLIW Instruction]
-    input  logic [2:0] instruction_in_V,
-    output logic [2:0] instruction_out_V,
-    output logic       inst_valid_out_V,
+  // ===| VLIW instruction |======================================================
+  input  logic [2:0] instruction_in_V,
+  output logic [2:0] instruction_out_V,
+  output logic       inst_valid_out_V,
 
-    // vertical shift port
-    // pass value to Accumulator
-    input  logic [47:0] V_result_in,  // PCIN from upper DSP's PCOUT
-    output logic [47:0] V_result_out, // PCOUT to lower DSP's PCIN (if any)
+  // ===| Partial-sum cascade |===================================================
+  input  logic [P_PORT_W-1:0] V_result_in,   // PCIN from the PE above
+  output logic [P_PORT_W-1:0] V_result_out,  // PCOUT (unused at the bottom)
 
-    // Pass value to barrelshifter
-    output logic [47:0] gemm_unit_results
+  // ===| Final result out to the barrel-shifter |================================
+  output logic [P_PORT_W-1:0] gemm_unit_results
 );
 
-  // ===| [Instruction Latch (Event-Driven)] |============================
+  // ===| Instruction latch |======================================================
   logic [2:0] current_inst;
 
   always_ff @(posedge clk) begin
@@ -57,7 +80,7 @@ module GEMM_dsp_unit_last_ROW #(
     end
   end
 
-  // ===| [The "Flush & Load" Sequencer] |================================
+  // ===| Flush sequencer |========================================================
   logic [3:0] flush_sequence;
 
   always_ff @(posedge clk) begin
@@ -71,19 +94,18 @@ module GEMM_dsp_unit_last_ROW #(
     end
   end
 
-  // ===| [Hardware Mapping (VLIW Decoding)] |============================
+  // ===| OPMODE / ALUMODE (plain PCIN path — no fabric break at the last row) |==
   logic [8:0] dynamic_opmode;
   logic [3:0] dynamic_alumode;
-
-  logic is_flushing;
-  assign is_flushing = flush_sequence[1] | flush_sequence[2];
+  logic       is_flushing;
+  assign      is_flushing = flush_sequence[1] | flush_sequence[2];
 
   always_comb begin
     if (is_flushing) begin
-      dynamic_opmode  = 9'b00_001_00_00;
+      dynamic_opmode  = 9'b00_001_00_00;   // P = PCIN (drain)
       dynamic_alumode = 4'b0000;
     end else if (current_inst[0] == 1'b1) begin
-      dynamic_opmode  = 9'b00_010_01_01;
+      dynamic_opmode  = 9'b00_010_01_01;   // P = P_prev + A*B (local accum)
       dynamic_alumode = 4'b0000;
     end else begin
       dynamic_opmode  = 9'b00_010_00_00;
@@ -94,94 +116,99 @@ module GEMM_dsp_unit_last_ROW #(
   logic dsp_ce_p;
   assign dsp_ce_p = current_inst[0] | is_flushing;
 
-  // ===| [Fabric FF & Weight Pipeline] |=================================
+  // ===| Weight latch + horizontal shift |========================================
+  logic [INT4_BITS-1:0] w_upper_reg;
+  logic [INT4_BITS-1:0] w_lower_reg;
+
   always_ff @(posedge clk) begin
     if (!rst_n || i_clear) begin
-      out_H <= 0;
-    end else begin
-      if (i_weight_valid) begin
-        out_H <= in_H;
-      end
+      w_upper_reg <= '0;
+      w_lower_reg <= '0;
+      out_H_upper <= '0;
+      out_H_lower <= '0;
+    end else if (i_weight_valid) begin
+      w_upper_reg <= in_H_upper;
+      w_lower_reg <= in_H_lower;
+      out_H_upper <= in_H_upper;
+      out_H_lower <= in_H_lower;
     end
   end
 
-  // ===| [Dual B-Register Control] |================
-  logic dsp_ce_b1;
-  logic dsp_ce_b2;
-  logic load_trigger;
+  // ===| Bit packing |============================================================
+  logic signed [A_PORT_W-1:0] a_packed;
+  logic signed [B_PORT_W-1:0] b_extended;
 
-  assign load_trigger = flush_sequence[3];
+  GEMM_dsp_packer #(
+    .INT4_BITS   (INT4_BITS),
+    .INT8_BITS   (INT8_BITS),
+    .A_PORT_W    (A_PORT_W),
+    .B_PORT_W    (B_PORT_W),
+    .UPPER_SHIFT (UPPER_SHIFT)
+  ) u_packer (
+    .in_w_lower     (w_lower_reg),
+    .in_w_upper     (w_upper_reg),
+    .in_act         (in_V),
+    .out_a_packed   (a_packed),
+    .out_b_extended (b_extended)
+  );
 
-  always_comb begin
-    if (current_inst[1] == 1'b1) begin
-      dsp_ce_b1 = i_valid;
-      dsp_ce_b2 = i_valid;
-    end else begin
-      dsp_ce_b1 = load_trigger | i_weight_valid;
-      dsp_ce_b2 = load_trigger;
-    end
-  end
-
+  // ===| o_valid pipeline |=======================================================
   logic valid_delay;
   always_ff @(posedge clk) begin
     if (!rst_n) valid_delay <= 1'b0;
-    else valid_delay <= i_valid;
+    else        valid_delay <= i_valid;
   end
   assign o_valid = valid_delay;
 
-  // <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
-  // [DSP48E2 primitive instantiation] <><><><><><><><><><><><><><><><><>
-  logic [17:0] in_H_padded;
-  assign in_H_padded = {{14{in_H[`GEMM_MAC_UNIT_IN_H-1]}}, in_H};
-
+  // ===| DSP48E2 primitive |======================================================
   DSP48E2 #(
-      .A_INPUT(IS_TOP_ROW ? "DIRECT" : "CASCADE"),
-      .B_INPUT("DIRECT"),
-      .AREG(1),
-      .BREG(2),
-      .CREG(0),
-      .MREG(1),
-      .PREG(1),
-      .OPMODEREG(1),
-      .ALUMODEREG(1),
-      .USE_MULT("MULTIPLY")
+    .A_INPUT    ("DIRECT"),
+    .B_INPUT    (IS_TOP_ROW ? "DIRECT" : "CASCADE"),
+    .AREG       (1),
+    .BREG       (2),
+    .CREG       (0),
+    .MREG       (1),
+    .PREG       (1),
+    .OPMODEREG  (1),
+    .ALUMODEREG (1),
+    .USE_MULT   ("MULTIPLY")
   ) DSP_HARD_BLOCK (
-      .CLK(clk),
-      .RSTA(i_clear),
-      .RSTB(i_clear),
-      .RSTM(i_clear),
-      .RSTP(i_clear),
-      .RSTCTRL(i_clear),
-      .RSTALLCARRYIN(i_clear),
-      .RSTALUMODE(i_clear),
-      .RSTC(i_clear),
+    .CLK          (clk),
+    .RSTA         (i_clear),
+    .RSTB         (i_clear),
+    .RSTM         (i_clear),
+    .RSTP         (i_clear),
+    .RSTCTRL      (i_clear),
+    .RSTALLCARRYIN(i_clear),
+    .RSTALUMODE   (i_clear),
+    .RSTC         (i_clear),
 
-      .CEA1(i_valid),
-      .CEA2(i_valid),
-      .CEB1(dsp_ce_b1),
-      .CEB2(dsp_ce_b2),
-      .CEM(i_valid),
-      .CEP(dsp_ce_p),
-      .CECTRL(1'b1),
-      .CEALUMODE(1'b1),
+    .CEA1     (i_weight_valid),
+    .CEA2     (i_weight_valid),
+    .CEB1     (i_valid),
+    .CEB2     (i_valid),
+    .CEM      (i_valid),
+    .CEP      (dsp_ce_p),
+    .CECTRL   (1'b1),
+    .CEALUMODE(1'b1),
 
-      .A(30'd0),
-      .ACIN(ACIN_in),
-      .ACOUT(ACOUT_out),
+    .A     (a_packed),
+    .ACIN  ('0),
+    .ACOUT (),
 
-      .B(in_H_padded),
-      .C(48'd0),
+    .B     (b_extended),
+    .BCIN  (BCIN_in),
+    .BCOUT (BCOUT_out),
 
-      .PCIN (V_result_in),
-      .PCOUT(V_result_out),
+    .C     ('0),
 
-      .OPMODE (dynamic_opmode),
-      .ALUMODE(dynamic_alumode),
+    .PCIN  (V_result_in),
+    .PCOUT (V_result_out),
 
-      // All result will send to Barrelshifter(FF)
-      .P(gemm_unit_results)
+    .OPMODE (dynamic_opmode),
+    .ALUMODE(dynamic_alumode),
+
+    .P      (gemm_unit_results)
   );
-  // [DSP48E2 primitive instantiation] <><><><><><><><><><><><><><><><><>
-  // <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
 
 endmodule

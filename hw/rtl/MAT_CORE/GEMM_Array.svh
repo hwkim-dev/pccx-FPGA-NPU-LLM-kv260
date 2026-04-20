@@ -1,17 +1,21 @@
-`define ARRAY_SIZE_H 32
-`define ARRAY_SIZE_V 32
+// ===| GEMM_Array.svh (compatibility shim) |====================================
+// Historically this file defined ARRAY_SIZE_H / ARRAY_SIZE_V independently.
+// Single-source the values from npu_arch.svh to avoid redefinition warnings
+// and keep downstream `include "GEMM_Array.svh" lines working.
+// ===============================================================================
 
-`define gemm_instruction_dispatcher_CLOCK_CONSUMPTION 1
+`ifndef GEMM_ARRAY_SVH
+`define GEMM_ARRAY_SVH
 
+`include "npu_arch.svh"
 
-
-
-
-// systolic delay line
+// Extra constants previously scoped to MAT_CORE alone.
+`ifndef MINIMUM_DELAY_LINE_LENGTH
 `define MINIMUM_DELAY_LINE_LENGTH 1
+`endif
 
-// systolic delay line V | TYPE:INT4
-`define INT4_WIDTH 4
+`ifndef gemm_instruction_dispatcher_CLOCK_CONSUMPTION
+`define gemm_instruction_dispatcher_CLOCK_CONSUMPTION 1
+`endif
 
-// systolic delay line H | TYPE: BFLOAT 16
-`define BFLOAT_WIDTH 16
+`endif // GEMM_ARRAY_SVH

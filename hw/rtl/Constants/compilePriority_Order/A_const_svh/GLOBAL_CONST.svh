@@ -28,10 +28,10 @@
 `define DSP48E2_B_WIDTH      `DEVICE_DSP_B_WIDTH
 `define PREG_SIZE            `DSP_P_OUT_WIDTH
 
-// MAC unit input widths (used in GEMM_systolic parameter defaults)
-// H = INT4 weight (4-bit, B-port)
-// V = fixed-point mantissa (27-bit, A-port)
-`define GEMM_MAC_UNIT_IN_H   4
-`define GEMM_MAC_UNIT_IN_V   `FIXED_MANT_WIDTH
+// (Retired) GEMM_MAC_UNIT_IN_H / GEMM_MAC_UNIT_IN_V — these described the
+// v001 1-MAC layout (INT4 on B-port, BF16 mantissa on A-port). v002 flips
+// those roles (2 x INT4 packed on A-port via GEMM_dsp_packer, INT8 on
+// B-port via BCIN/BCOUT cascade), so the old constants no longer fit.
+// Use `INT4_WIDTH / `DEVICE_DSP_A_WIDTH / `DEVICE_DSP_B_WIDTH directly.
 
 `endif // GLOBAL_CONST_SVH

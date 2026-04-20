@@ -15,20 +15,21 @@
  */
 
 module GEMM_systolic_top #(
-    parameter weight_lane_cnt = `HP_PORT_CNT,
+    parameter weight_lane_cnt      = `HP_PORT_CNT,
     parameter weight_width_per_lane = `HP_PORT_SINGLE_WIDTH,
-    parameter weight_size     = `INT4,
+    parameter weight_size          = `INT4_WIDTH,
 
-    // 32 = 128bit / int4(4bit)
-    parameter weight_cnt      = `HP_WEIGHT_CNT(`HP_PORT_SINGLE_WIDTH, `INT4),
+    // 32 = 128 bit / int4 (4-bit)
+    parameter weight_cnt           = `HP_PORT_SINGLE_WIDTH / `INT4_WIDTH,
 
-    parameter array_horizontal = `ARRAY_SIZE_H,
-    parameter array_vertical   = `ARRAY_SIZE_V,
+    parameter array_horizontal     = `ARRAY_SIZE_H,
+    parameter array_vertical       = `ARRAY_SIZE_V,
 
-    parameter dsp_A_port       = `ACIN,
-
-    parameter IN_fmap_brodcast = `FIXED_MANT_WIDTH
-
+    // v001 fmap was BF16 mantissa on DSP A-port. v002 will replace this
+    // with INT8 on B-port; the staggered delay still carries the v001
+    // width until the PREPROCESS stage is ported.
+    parameter dsp_A_port           = `DEVICE_DSP_A_WIDTH,
+    parameter IN_fmap_brodcast     = `FIXED_MANT_WIDTH
 )(
     input logic clk,
     input logic rst_n,
@@ -46,10 +47,16 @@ module GEMM_systolic_top #(
     // e_max (from Cache for Normalization alignment)
     input logic [`BF16_EXP_WIDTH-1:0]  IN_cached_emax_out[0:`ARRAY_SIZE_H-1],
 
-    // Weight Input from FIFO (Direct)
-    input  logic [`HP_PORT_MAX_WIDTH-1:0] IN_weight_fifo_data,
-    input  logic                          IN_weight_fifo_valid,
-    output logic                          weight_fifo_ready,
+    // ===| Weight input lanes |===================================================
+    //   HP0 -> upper INT4 channel, HP1 -> lower INT4 channel. Both lanes must
+    //   present valid data in the same cycle for the W4A8 dual-MAC pipeline.
+    //   Arrays are already unpacked to 32 × INT4 upstream (128 bit / 4 bit = 32).
+    input  logic [`INT4_WIDTH-1:0] IN_weight_upper      [0:(`HP_PORT_SINGLE_WIDTH/`INT4_WIDTH)-1],
+    input  logic                   IN_weight_upper_valid,
+    output logic                   IN_weight_upper_ready,
+    input  logic [`INT4_WIDTH-1:0] IN_weight_lower      [0:(`HP_PORT_SINGLE_WIDTH/`INT4_WIDTH)-1],
+    input  logic                   IN_weight_lower_valid,
+    output logic                   IN_weight_lower_ready,
 
     // Output Results (Raw)
     output logic [`DSP48E2_POUT_SIZE-1:0] raw_res_sum      [0:`ARRAY_SIZE_H-1],
@@ -59,24 +66,28 @@ module GEMM_systolic_top #(
     output logic [`BF16_EXP_WIDTH-1:0] delayed_emax_32[0:`ARRAY_SIZE_H-1]
 );
 
-  // ===| Weight Dispatcher (The Unpacker) |=======
-  logic [weight_size-1:0] unpacked_weights [0:weight_cnt-1];
-  logic             weights_ready_for_array;
+  // ===| Weight Dispatcher (dual-lane pipeline FF) |============================
+  logic [weight_size-1:0] weight_upper [0:weight_cnt-1];
+  logic [weight_size-1:0] weight_lower [0:weight_cnt-1];
+  logic                   weights_ready_for_array;
 
   GEMM_weight_dispatcher #(
-    .weight_lane_cnt(weight_lane_cnt),
-    .weight_width_per_lane(weight_width_per_lane),
     .weight_size(weight_size),
-    .weight_cnt(weight_cnt)
-    .array_horizontal(array_horizontal),
-    .array_vertical(array_vertical)
+    .weight_cnt (weight_cnt)
   ) u_weight_unpacker (
-      .clk(clk),
+      .clk  (clk),
       .rst_n(rst_n),
-      .fifo_data(IN_weight_fifo_data),
-      .fifo_valid(IN_weight_fifo_valid),
-      .fifo_ready(weight_fifo_ready),
-      .weight_out(unpacked_weights),
+
+      .fifo_upper      (IN_weight_upper),
+      .fifo_upper_valid(IN_weight_upper_valid),
+      .fifo_upper_ready(IN_weight_upper_ready),
+
+      .fifo_lower      (IN_weight_lower),
+      .fifo_lower_valid(IN_weight_lower_valid),
+      .fifo_lower_ready(IN_weight_lower_ready),
+
+      .weight_upper(weight_upper),
+      .weight_lower(weight_lower),
       .weight_valid(weights_ready_for_array)
   );
 
@@ -106,28 +117,42 @@ module GEMM_systolic_top #(
   // ===| Systolic Array Core (The Engine) |=======
   logic [`DSP48E2_POUT_SIZE-1:0] raw_res_seq[0:`ARRAY_SIZE_H-1];
 
+  // TODO(pccx v002 §2.2 follow-up):
+  //   * Fmap must arrive as INT8 from the PREPROCESS stage. Today the
+  //     staggered_fmap is 27-bit BF16 mantissa (v001 carryover); we
+  //     truncate to its low 8 bits as a placeholder.
+  logic [7:0] staggered_fmap_INT8 [0:`ARRAY_SIZE_H-1];
+  genvar col_idx;
+  generate
+    for (col_idx = 0; col_idx < `ARRAY_SIZE_H; col_idx++) begin : act_trunc
+      assign staggered_fmap_INT8[col_idx] = staggered_fmap[col_idx][7:0];
+    end
+  endgenerate
+
   GEMM_systolic_array #(
-      .ARRAY_HORIZONTAL(`ARRAY_SIZE_H),
+      .array_horizontal(`ARRAY_SIZE_H),
       .array_vertical  (`ARRAY_SIZE_V),
-      .h_in_size(`GEMM_MAC_UNIT_IN_H),
-      .v_in_size(`GEMM_MAC_UNIT_IN_V)
+      .INT4_BITS       (`INT4_WIDTH),
+      .INT8_BITS       (8),
+      .B_PORT_W        (`DEVICE_DSP_B_WIDTH)
   ) u_compute_core (
       .clk(clk),
       .rst_n(rst_n),
       .i_clear(i_clear),
       .i_weight_valid(global_weight_valid),
 
-      // Horizontal: Weights
-      .H_in(unpacked_weights),
+      // Horizontal: distinct upper / lower INT4 weight streams.
+      .H_in_upper(weight_upper),
+      .H_in_lower(weight_lower),
 
-      // Vertical: Feature Map Broadcast & Instructions (Staggered)
-      .V_in(staggered_fmap),
-      .in_valid(staggered_fmap_valid),
-      .inst_in(staggered_inst),
+      // Vertical: Feature Map (INT8 truncation placeholder) + Instructions.
+      .V_in         (staggered_fmap_INT8),
+      .in_valid     (staggered_fmap_valid),
+      .inst_in      (staggered_inst),
       .inst_valid_in(staggered_inst_valid),
 
-      .V_out(raw_res_seq),
-      .V_ACC_out(raw_res_sum),
+      .V_out      (raw_res_seq),
+      .V_ACC_out  (raw_res_sum),
       .V_ACC_valid(raw_res_sum_valid)
   );
 
