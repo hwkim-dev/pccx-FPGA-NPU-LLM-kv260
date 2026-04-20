@@ -31,6 +31,7 @@ declare -A TB_DEPS=(
     [tb_mat_result_normalizer]="MAT_CORE/mat_result_normalizer.sv"
     [tb_GEMM_weight_dispatcher]="MAT_CORE/GEMM_weight_dispatcher.sv"
     [tb_FROM_mat_result_packer]="MAT_CORE/FROM_mat_result_packer.sv"
+    [tb_barrel_shifter_BF16]="barrel_shifter_BF16.sv"
 )
 
 # Core-id assigned to a tb's emitted pccx trace. Kept contiguous so the UI
@@ -40,6 +41,7 @@ declare -A TB_CORE=(
     [tb_mat_result_normalizer]=1
     [tb_GEMM_weight_dispatcher]=2
     [tb_FROM_mat_result_packer]=3
+    [tb_barrel_shifter_BF16]=4
 )
 
 run_tb() {
