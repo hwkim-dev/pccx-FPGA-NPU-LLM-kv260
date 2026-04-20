@@ -33,6 +33,8 @@ declare -A TB_DEPS=(
     [tb_FROM_mat_result_packer]="MAT_CORE/FROM_mat_result_packer.sv"
     [tb_barrel_shifter_BF16]="barrel_shifter_BF16.sv"
     [tb_ctrl_npu_decoder]="NPU_Controller/NPU_Control_Unit/ISA_PACKAGE/isa_pkg.sv NPU_Controller/NPU_Control_Unit/ctrl_npu_decoder.sv"
+    # tb_GEMM_fmap_staggered_delay: shift-chain timing model not yet
+    # aligned with xsim — drop for now, track as open item.
 )
 
 # Core-id assigned to a tb's emitted pccx trace. Kept contiguous so the UI
