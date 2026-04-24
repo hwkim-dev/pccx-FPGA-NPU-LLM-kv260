@@ -96,10 +96,15 @@ Transformer_Accelerator_FPGA-K26_SOM/Transformer_Accelerator/Transformer_Acceler
 # markdown and extention for personal use
 GEMINI.md
 .VSCodeCounter/
-.github/
 .settings/
 github/
 settings/
+
+# --- .github selectively: keep CI workflows tracked, ignore local AI configs ---
+.github/ISSUE_TEMPLATE/
+.github/PULL_REQUEST_TEMPLATE.md
+.github/copilot-instructions.md
+.github/workflows/gemini-*.yml
 CLAUDE.md
 .claude
 ./claude
