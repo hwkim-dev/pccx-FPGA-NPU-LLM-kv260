@@ -8,9 +8,14 @@
 ![Goal](https://img.shields.io/badge/Gemma_3N_E4B-20_tok%2Fs-yellow)
 
 This repo is the **bare-metal Kria KV260 implementation** (RTL + driver +
-application) of the **pccx v002** NPU architecture. It exists to close
-the loop between the pccx architecture specification and a working
-Gemma 3N E4B decoder on a real FPGA.
+application) of the **pccx v002** NPU architecture. It hosts an early
+SystemVerilog RTL and bare-metal driver source snapshot intended to
+close the loop between the pccx architecture specification, source-level
+RTL inspection, early verification setup, and planned KV260 bring-up.
+
+This is not a timing-closed production bitstream release — Vivado
+synthesis, trace-driven verification, and full Gemma 3N E4B application
+wiring are still in progress or planned.
 
 > ### Start with the architecture docs
 >
@@ -22,7 +27,7 @@ Gemma 3N E4B decoder on a real FPGA.
 > &nbsp;·&nbsp; [Gemma 3N E4B on pccx v002](https://hkimw.github.io/pccx/en/docs/v002/Models/gemma3n_execution.html)
 > &nbsp;·&nbsp; [한국어 문서](https://hkimw.github.io/pccx/ko/docs/v002/index.html)
 
-Related repos: [pccx (spec)](https://github.com/hkimw/pccx) · [llm-lite (x64 golden reference)](https://github.com/hkimw/llm-lite)
+Related repos: [pccx (spec)](https://github.com/hkimw/pccx) · [pccx-lab (profiler / simulator)](https://github.com/hkimw/pccx-lab) · [llm-bottleneck-lab (related research)](https://github.com/hkimw/llm-bottleneck-lab)
 
 ---
 
