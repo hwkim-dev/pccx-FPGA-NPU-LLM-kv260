@@ -1,0 +1,72 @@
+name: repo-validate
+
+# Lightweight always-run gate. Fast, decisive, no external installs.
+# Designed to be a stable required-status-check candidate for the main
+# branch. The Sail typecheck workflow has a strict paths filter
+# (formal/sail/**), so it cannot back a required check for arbitrary
+# PRs; this workflow fills that gap.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repo-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Forbidden basename scan
+        run: |
+          set -e
+          bad=$(git ls-files | grep -iE '(^|/)(CLAUDE|GEMINI|AGENTS|JULES_REVIEW)\.md$|^TODO\.md$|^\.private-ai/|^\.github/workflows/private-ci\.yml$|^\.github/workflows/gemini-.*\.yml$|_Tasks_for_Claude' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Forbidden basenames present in tracked tree:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Stale owner URL scan
+        run: |
+          set -e
+          # pccx and pccx-lab moved to pccxai on 2026-04-30. The repo's
+          # own README intentionally keeps a 'Related repos' link to
+          # hkimw/llm-bottleneck-lab (personal research repo, not part
+          # of the org transfer); that match is allowed via repo path.
+          bad=$(git grep -nE \
+              'hwkim-dev|hkimw\.github\.io/pccx|hwkim-dev\.github\.io/pccx|github\.com/hwkim-dev/pccx|github\.com/hkimw/pccx([^-a-zA-Z]|$)|github\.com/hkimw/pccx-lab|github\.com/hkimw/pccx-FPGA-NPU-LLM-kv260' \
+              -- ':!.github/workflows/validate.yml' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Stale owner URLs found (transferred repos moved to pccxai/*):"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Phantom .gitmodules check
+        run: |
+          set -e
+          if [ -f .gitmodules ]; then
+            echo "::error::.gitmodules is present. The previous llm-lite submodule was a phantom and was removed; recreating it requires a real, reachable target."
+            cat .gitmodules
+            exit 1
+          fi
+
+      - name: YAML syntax (workflow files)
+        run: |
+          set -e
+          for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+            [ -f "$f" ] || continue
+            python3 -c "import sys, yaml; yaml.safe_load(open('$f'))" \
+              || { echo "::error::YAML parse error in $f"; exit 1; }
+          done
