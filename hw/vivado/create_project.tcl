@@ -13,12 +13,14 @@
 #   KV260 SOM (xck26-sfvc784-2LV-c), Zynq UltraScale+ MPSoC ZU5EV.
 # =============================================================================
 
-set HW_ROOT        [file normalize [file dirname [info script]]/..]
-set PROJ_DIR       [file normalize $HW_ROOT/build/pccx_v002_kv260]
-set PROJ_NAME      pccx_v002_kv260
-set TARGET_PART    xck26-sfvc784-2LV-c
-set TARGET_BOARD   xilinx.com:kv260_som:part0:1.4
-set TOP_MODULE     NPU_top
+set HW_ROOT             [file normalize [file dirname [info script]]/..]
+set REPO_ROOT           [file normalize $HW_ROOT/..]
+set PCCX_V002_RTL_ROOT  [file normalize $REPO_ROOT/third_party/pccx-v002]
+set PROJ_DIR            [file normalize $HW_ROOT/build/pccx_v002_kv260]
+set PROJ_NAME           pccx_v002_kv260
+set TARGET_PART         xck26-sfvc784-2LV-c
+set TARGET_BOARD        xilinx.com:kv260_som:part0:1.4
+set TOP_MODULE          pccx_npu_top
 
 puts "\[pccx\] HW_ROOT    = $HW_ROOT"
 puts "\[pccx\] PROJ_DIR   = $PROJ_DIR"
@@ -43,17 +45,30 @@ if {[llength [get_board_parts -quiet $TARGET_BOARD]] > 0} {
 }
 
 # ----------------------------------------------------------------------------
-# Source fileset — driven by hw/vivado/filelist.f
+# Source fileset — driven by hw/vivado/filelist.v002.f
 # ----------------------------------------------------------------------------
-set filelist_path $HW_ROOT/vivado/filelist.f
-set fp [open $filelist_path r]
 set sv_files {}
-while {[gets $fp line] >= 0} {
-    set line [string trim $line]
-    if {$line eq "" || [string index $line 0] eq "#"} continue
-    lappend sv_files [file normalize $HW_ROOT/$line]
+
+proc append_filelist_entries {filelist_path base_dir sv_files_var} {
+    upvar $sv_files_var sv_files
+    set fp [open $filelist_path r]
+    while {[gets $fp line] >= 0} {
+        set line [string trim $line]
+        if {$line eq "" || [string index $line 0] eq "#"} continue
+
+        if {[regexp {^-f[ \t]+(.+)$} $line -> nested_rel]} {
+            set nested_path [file normalize $base_dir/$nested_rel]
+            set nested_base [file normalize [file dirname $nested_path]/../..]
+            append_filelist_entries $nested_path $nested_base sv_files
+        } else {
+            lappend sv_files [file normalize $base_dir/$line]
+        }
+    }
+    close $fp
 }
-close $fp
+
+set filelist_path $HW_ROOT/vivado/filelist.v002.f
+append_filelist_entries $filelist_path $HW_ROOT sv_files
 
 add_files -fileset sources_1 $sv_files
 set_property file_type SystemVerilog [get_files -of [get_filesets sources_1]]
@@ -63,14 +78,14 @@ set_property top $TOP_MODULE [current_fileset]
 # Header / include search paths
 # ----------------------------------------------------------------------------
 set include_dirs [list \
-    $HW_ROOT/rtl \
-    $HW_ROOT/rtl/Constants/compilePriority_Order/A_const_svh \
-    $HW_ROOT/rtl/MAT_CORE \
-    $HW_ROOT/rtl/MEM_control/IO \
-    $HW_ROOT/rtl/NPU_Controller \
-    $HW_ROOT/rtl/NPU_Controller/NPU_Control_Unit \
-    $HW_ROOT/rtl/NPU_Controller/NPU_Control_Unit/ISA_PACKAGE \
-    $HW_ROOT/rtl/VEC_CORE \
+    $PCCX_V002_RTL_ROOT/common/rtl/packages/legacy \
+    $PCCX_V002_RTL_ROOT/common/rtl/packages \
+    $PCCX_V002_RTL_ROOT/common/rtl/interfaces \
+    $PCCX_V002_RTL_ROOT/LLM/rtl/packages/isa \
+    $PCCX_V002_RTL_ROOT/LLM/rtl/packages/controller \
+    $PCCX_V002_RTL_ROOT/LLM/rtl/core/mat \
+    $PCCX_V002_RTL_ROOT/LLM/rtl/core/vec \
+    $PCCX_V002_RTL_ROOT/LLM/rtl/interfaces \
 ]
 set_property include_dirs $include_dirs [get_filesets sources_1]
 set_property include_dirs $include_dirs [get_filesets sim_1]
