@@ -5,7 +5,7 @@
 // ===| uCA API Implementation |==================================================
 // Builds 64-bit VLIW instructions from structured arguments and issues them
 // to the NPU via the HAL. Encoding per pccx v002 ISA:
-// https://pccxai.github.io/pccx/en/docs/v002/ISA/index.html
+// https://pccx.pages.dev/en/docs/v002/ISA/index.html
 // ================================================================================
 
 #include "uCA_v1_api.h"

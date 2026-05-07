@@ -13,7 +13,7 @@ abstract: >-
 type: software
 license: Apache-2.0
 repository-code: "https://github.com/pccxai/pccx-FPGA-NPU-LLM-kv260"
-url: "https://pccxai.github.io/pccx/"
+url: "https://pccx.pages.dev/"
 authors:
   - family-names: Kim
     given-names: Hyunwoo
