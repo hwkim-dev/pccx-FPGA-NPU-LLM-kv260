@@ -1,5 +1,9 @@
 # pccx — Bare-Metal Transformer Accelerator on Kria KV260
 
+> This repository is the KV260 + PCCX v002 LLM application integration
+> repo. The reusable v002 IP-core lives in `pccx-v002` (LLM package).
+> Future v003 IP-core will live in `pccx-v003`.
+
 Open SystemVerilog NPU for experimental Gemma-class LLM acceleration on
 AMD/Xilinx Kria KV260.
 
@@ -17,11 +21,10 @@ Next milestone: v0.2.0 evidence pack
 
 **Current status:** RTL alpha · timing closure and full runtime bring-up in progress.
 
-This repo is the **bare-metal Kria KV260 implementation** of the
-**pccx v002** NPU architecture. It hosts an early SystemVerilog RTL and
-bare-metal driver source snapshot intended to close the loop between the
-pccx architecture specification, source-level RTL inspection, early
-verification setup, and planned KV260 bring-up.
+This repo is the **KV260 + PCCX v002 LLM application integration** repo.
+It hosts board integration, bare-metal driver source, application wiring,
+and a copied RTL baseline while the integration flow is being reworked to
+consume the reusable `pccx-v002` LLM package.
 
 This is not a timing-closed production bitstream release — Vivado
 synthesis, trace-driven verification, and full Gemma 3N E4B application
@@ -51,7 +54,7 @@ issues are welcome.
 | Entry point | Link |
 | --- | --- |
 | Architecture & ISA spec | <https://pccxai.github.io/pccx/en/docs/v002/index.html> |
-| RTL reference (this repo) | [`hw/rtl/`](hw/rtl/) — top wrapper [`NPU_top.sv`](hw/rtl/NPU_top.sv) |
+| RTL baseline copy (transition) | [`hw/rtl/`](hw/rtl/) — top wrapper [`NPU_top.sv`](hw/rtl/NPU_top.sv) |
 | Releases | <https://github.com/pccxai/pccx-FPGA-NPU-LLM-kv260/releases> |
 | `v0.1.0-alpha` notes | [docs/releases/v0.1.0-alpha.md](docs/releases/v0.1.0-alpha.md) |
 | Roadmap (project board) | <https://github.com/orgs/pccxai/projects/1> |
@@ -73,14 +76,16 @@ issues are welcome.
 | ------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | Architecture / ISA / driver spec     | `pccx/docs/v002/`                          | [pccx v002 docs](https://pccxai.github.io/pccx/en/docs/v002/index.html)               |
 | Target-model pipeline (Gemma 3N E4B) | `pccx/docs/v002/Models/`                   | [Models section](https://pccxai.github.io/pccx/en/docs/v002/Models/index.html)        |
-| RTL (SystemVerilog)                  | this repo — `hw/rtl/`                      | —                                                                                         |
+| Reusable v002 IP-core RTL            | `pccx-v002/LLM/`, `pccx-v002/common/`      | `pccx-v002` compatibility contract                                                         |
+| KV260 integration RTL copy           | this repo — `hw/rtl/`                      | Transition copy until this repo consumes `pccx-v002`                                       |
 | Bare-metal driver (C/C++)            | this repo — `sw/driver/`                   | API spec: [Drivers/api](https://pccxai.github.io/pccx/en/docs/v002/Drivers/api.html)  |
 | Application (planned, v0.2.0)        | this repo — `sw/gemma3NE4B/` (not yet in tree) | —                                                                                     |
 
 If you want to **read about how the accelerator works**, head to the
 **[pccx v002 docs](https://pccxai.github.io/pccx/en/docs/v002/index.html)** —
 that's the canonical source for every architectural decision in this repo.
-If you want to **read the RTL or synthesize the bitstream**, stay here.
+If you want to **inspect the current KV260 integration copy or run the
+board flow**, stay here.
 
 ---
 
@@ -251,20 +256,22 @@ Details: [KV cache strategy →](https://pccxai.github.io/pccx/en/docs/v002/Arch
 
 ---
 
-## Roadmap — Two-Track
+## Roadmap — Integration and IP-core lines
 
-This repository hosts the RTL for **both** active tracks. As of
-2026-04-20:
+This repository remains the KV260 + PCCX v002 LLM application
+integration repo. Reusable v002 IP-core ownership moves to `pccx-v002`;
+future v003 IP-core ownership will be separate in `pccx-v003`.
 
-| Track | Target model | Planned target | Horizon | Shared RTL assets |
-|-------|-------------|------|---------|-------------------|
-| **v002 Extended** (this repo, `main`) | Gemma 3N E4B | **20 tok/s** target, evidence-gated | Week 1–49 | sparse weight fetcher (Phase G), EAGLE draft/verify dispatch (Phase H+), SSD scheduler (Phase I), tree mask generator (Phase J) |
-| **v003** (future branch) | Gemma 4 E4B | **12–15 tok/s** target | Week 16–52 (parallel) | reuses v002 Phase G/H/I/J modules with hidden/layer/KV-head re-parameterization |
+| Track | Owner | Target model | Scope | Status |
+|-------|-------|--------------|-------|--------|
+| **v002 integration** | this repo + `pccx-v002` | Gemma 3N E4B | KV260 board flow, bare-metal driver, application wiring, and v002 LLM package consumption | In progress |
+| **v003 IP-core** | `pccx-v003` | Gemma 4 E4B | Separate IP-core line and compatibility contract | Future / TBD |
 
-- v002 freeze → snapshotted into `pccx/codes/v002/` via the pccx
-  version-cutover workflow (`tools/freeze_active.sh`).
-- v003 lives on a later branch of this same repo; the pccx docs site
-  will fork its own `v003/` docs tree at the same time.
+- This repository keeps its in-tree RTL copy during the transition.
+- A later phase will wire `pccx-v002` in as the consumed IP-core source,
+  then remove duplicate in-tree copies once the integration boundary is
+  verified.
+- v003 RTL belongs to the separate IP-core repository line.
 
 Full phase-by-phase plan, decision points, compute budget, and Year 2
 **Auto-Porting Pipeline α** vision:
