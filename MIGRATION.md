@@ -1,6 +1,6 @@
 # v002 IP-core extraction migration map
 
-This map records reusable IP-core files copied from this KV260 integration repository into `pccx-v002`. The in-tree copies remain in this repository during this phase; a later integration step will consume `pccx-v002` directly before duplicate sources are removed.
+This map records reusable IP-core files copied from this KV260 integration repository into `pccx-v002`. The duplicate in-tree copies were removed after this repository was redirected to consume `pccx-v002` through `third_party/pccx-v002`.
 
 Source: `pccx-v002/SOURCE_MANIFEST.md`
 
@@ -88,3 +88,13 @@ Source: `pccx-v002/SOURCE_MANIFEST.md`
 | `formal/sail/src/prelude.sail` | `pccx-v002` | `LLM/formal/sail/src/prelude.sail` | none |
 | `formal/sail/tests/smoke_decode.sail` | `pccx-v002` | `LLM/formal/sail/tests/smoke_decode.sail` | none |
 | `hw/vivado/filelist.f` | `pccx-v002` | `LLM/scripts/filelist.f` | package compile list path with BD shim removed |
+
+## Removed in submodule transition
+
+| directory | commit | reason |
+| --- | --- | --- |
+| `hw/rtl/Constants/`, `hw/rtl/Library/`, `hw/rtl/barrel_shifter_BF16.sv` | `d018959` | Common RTL now comes from `third_party/pccx-v002/common/rtl/`. |
+| `hw/rtl/MAT_CORE/`, `hw/rtl/CVO_CORE/`, `hw/rtl/VEC_CORE/`, `hw/rtl/PREPROCESS/`, `hw/rtl/NPU_Controller/`, `hw/rtl/MEM_control/`, `hw/rtl/NPU_top.sv` | `8d7f8d0` | LLM core RTL now comes from `third_party/pccx-v002/LLM/rtl/`. |
+| `hw/tb/`, `hw/sim/run_verification.sh` | `610cdd0` | Testbench and sim runner now come from `third_party/pccx-v002/LLM/`. |
+| `formal/sail/` | `4e3ff17` | Formal sources now come from `third_party/pccx-v002/LLM/formal/sail/`. |
+| `hw/vivado/filelist.f` | `596116f` | KV260 Vivado flow now enters through `hw/vivado/filelist.v002.f`. |

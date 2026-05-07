@@ -7,12 +7,12 @@ Target device: **Kria KV260 SOM, `xck26-sfvc784-2LV-c` (ZU5EV)**.
 
 | Path | Role |
 |------|------|
-| `filelist.f`            | Ordered SystemVerilog source list, read by both `xvlog -f` and the Vivado TCL. |
+| `filelist.v002.f`       | KV260 integration source list that forwards to `third_party/pccx-v002/LLM/scripts/filelist.f`. |
 | `create_project.tcl`    | Build the Vivado project (part, sources, includes, XDC). |
-| `synth.tcl`             | Out-of-context synthesis of `NPU_top`. Reports into `build/reports/`. |
+| `synth.tcl`             | Out-of-context synthesis of `pccx_npu_top`. Reports into `build/reports/`. |
 | `impl.tcl`              | Opt / place / route / `write_bitstream`. Long job — only run once synth is clean. |
 | `build.sh`              | Wrapper: `./build.sh {project\|synth\|impl\|clean}`. |
-| `npu_core_wrapper.sv`   | Plain-signal shim around `NPU_top`'s SV-interface ports, used by the BD / IP packager. |
+| `npu_core_wrapper.sv`   | Plain-signal shim around `pccx_npu_top`'s SV-interface ports, used by the BD / IP packager. |
 
 ## Quick start
 
@@ -28,7 +28,7 @@ cd hw
 # Full implementation + bitstream (hour-scale)
 ./vivado/build.sh impl
 
-# Wipe all generated state
+# Wipe build state
 ./vivado/build.sh clean
 ```
 
@@ -36,9 +36,9 @@ cd hw
 
 | Stage | Status |
 |-------|--------|
-| RTL compile (`xvlog`) — 52 files | ✅ clean |
+| RTL compile (`xvlog`) via `filelist.v002.f` | ✅ clean |
 | `xelab` on `GEMV_top`, `CVO_top`, `GEMM_systolic_top` | ✅ clean |
-| `xelab` on `NPU_top` standalone | ⚪ expected fail — interface ports need a wrapper; see `npu_core_wrapper.sv` |
+| `xelab` on `pccx_npu_top` standalone | ⚪ expected fail — interface ports need a wrapper; see `npu_core_wrapper.sv` |
 | `create_project.tcl` | ✅ runs green |
 | `synth.tcl` (out-of-context) | 🟡 attempted locally; no completed report yet. Use `PCCX_VIVADO_JOBS=1` on memory-constrained hosts |
 | `impl.tcl` (write_bitstream) | 🔴 not attempted yet — gated on completed synth evidence |
@@ -48,7 +48,7 @@ cd hw
 
 ## Timing evidence
 
-Generated Vivado evidence lands under `hw/build/reports/` and is ignored
+Vivado evidence lands under `hw/build/reports/` and is ignored
 by git unless a future curated-evidence policy says otherwise. Record the
 summary values in PRs or release notes instead of committing full build
 directories.
@@ -61,7 +61,7 @@ Minimum report set:
 | Post-implementation | `utilization_post_impl.rpt`, `clock_interaction_post_impl.rpt`, `timing_summary_post_impl.rpt`, `drc_post_impl.rpt`, `power_post_impl.rpt` |
 
 See [`../../docs/TIMING_EVIDENCE.md`](../../docs/TIMING_EVIDENCE.md) for
-the review checklist and wording rules. A generated timing report is
+the review checklist and wording rules. A timing report is
 evidence, not a timing-closure claim.
 
 ## Next steps to reach a running board

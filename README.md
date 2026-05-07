@@ -1,7 +1,7 @@
 # pccx — Bare-Metal Transformer Accelerator on Kria KV260
 
 > This repository is the KV260 + PCCX v002 LLM application integration
-> repo. The reusable v002 IP-core lives in `pccx-v002` (LLM package).
+> repo. The reusable v002 IP-core is pinned at `third_party/pccx-v002`.
 > Future v003 IP-core will live in `pccx-v003`.
 
 Open SystemVerilog NPU for experimental Gemma-class LLM acceleration on
@@ -23,8 +23,8 @@ Next milestone: v0.2.0 evidence pack
 
 This repo is the **KV260 + PCCX v002 LLM application integration** repo.
 It hosts board integration, bare-metal driver source, application wiring,
-and a copied RTL baseline while the integration flow is being reworked to
-consume the reusable `pccx-v002` LLM package.
+and the Vivado/sim wrappers that consume the reusable `pccx-v002` LLM
+package through `third_party/pccx-v002` and `hw/vivado/filelist.v002.f`.
 
 This is not a timing-closed production bitstream release — Vivado
 synthesis, trace-driven verification, and full Gemma 3N E4B application
@@ -34,7 +34,8 @@ wiring are still in progress or planned.
 >
 > The design rationale, ISA, memory map, and model-mapping notes live on
 > the **pccx documentation site**. This repo implements what that site
-> specifies — read the spec first, then come back here for the RTL.
+> specifies — read the spec first, then come back here for the KV260
+> integration flow.
 >
 > **→ [pccx v002 — Architecture & ISA spec](https://pccxai.github.io/pccx/en/docs/v002/index.html)**
 > &nbsp;·&nbsp; [Gemma 3N E4B on pccx v002](https://pccxai.github.io/pccx/en/docs/v002/Models/gemma3n_execution.html)
@@ -54,7 +55,7 @@ issues are welcome.
 | Entry point | Link |
 | --- | --- |
 | Architecture & ISA spec | <https://pccxai.github.io/pccx/en/docs/v002/index.html> |
-| RTL baseline copy (transition) | [`hw/rtl/`](hw/rtl/) — top wrapper [`NPU_top.sv`](hw/rtl/NPU_top.sv) |
+| RTL consumed by KV260 | [`third_party/pccx-v002/LLM/rtl/`](third_party/pccx-v002/LLM/rtl/) + [`third_party/pccx-v002/common/rtl/`](third_party/pccx-v002/common/rtl/) via [`hw/vivado/filelist.v002.f`](hw/vivado/filelist.v002.f); top [`pccx_npu_top.sv`](third_party/pccx-v002/LLM/rtl/top/pccx_npu_top.sv) |
 | Releases | <https://github.com/pccxai/pccx-FPGA-NPU-LLM-kv260/releases> |
 | `v0.1.0-alpha` notes | [docs/releases/v0.1.0-alpha.md](docs/releases/v0.1.0-alpha.md) |
 | Roadmap (project board) | <https://github.com/orgs/pccxai/projects/1> |
@@ -76,16 +77,16 @@ issues are welcome.
 | ------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | Architecture / ISA / driver spec     | `pccx/docs/v002/`                          | [pccx v002 docs](https://pccxai.github.io/pccx/en/docs/v002/index.html)               |
 | Target-model pipeline (Gemma 3N E4B) | `pccx/docs/v002/Models/`                   | [Models section](https://pccxai.github.io/pccx/en/docs/v002/Models/index.html)        |
-| Reusable v002 IP-core RTL            | `pccx-v002/LLM/`, `pccx-v002/common/`      | `pccx-v002` compatibility contract                                                         |
-| KV260 integration RTL copy           | this repo — `hw/rtl/`                      | Transition copy until this repo consumes `pccx-v002`                                       |
+| Reusable v002 IP-core RTL            | `third_party/pccx-v002/LLM/`, `third_party/pccx-v002/common/` | `pccx-v002` compatibility contract + [`third_party/PINS.md`](third_party/PINS.md) |
+| KV260 Vivado integration             | this repo — `hw/vivado/`                   | Wrapper, Tcl flow, and [`filelist.v002.f`](hw/vivado/filelist.v002.f)                 |
 | Bare-metal driver (C/C++)            | this repo — `sw/driver/`                   | API spec: [Drivers/api](https://pccxai.github.io/pccx/en/docs/v002/Drivers/api.html)  |
 | Application (planned, v0.2.0)        | this repo — `sw/gemma3NE4B/` (not yet in tree) | —                                                                                     |
 
 If you want to **read about how the accelerator works**, head to the
 **[pccx v002 docs](https://pccxai.github.io/pccx/en/docs/v002/index.html)** —
 that's the canonical source for every architectural decision in this repo.
-If you want to **inspect the current KV260 integration copy or run the
-board flow**, stay here.
+If you want to **inspect the KV260 integration wrapper, the submodule
+pin, or the board flow**, stay here.
 
 ---
 
@@ -259,7 +260,8 @@ Details: [KV cache strategy →](https://pccxai.github.io/pccx/en/docs/v002/Arch
 ## Roadmap — Integration and IP-core lines
 
 This repository remains the KV260 + PCCX v002 LLM application
-integration repo. Reusable v002 IP-core ownership moves to `pccx-v002`;
+integration repo. Reusable v002 IP-core ownership is in `pccx-v002` and
+is consumed here through the pinned `third_party/pccx-v002` submodule;
 future v003 IP-core ownership will be separate in `pccx-v003`.
 
 | Track | Owner | Target model | Scope | Status |
@@ -267,10 +269,9 @@ future v003 IP-core ownership will be separate in `pccx-v003`.
 | **v002 integration** | this repo + `pccx-v002` | Gemma 3N E4B | KV260 board flow, bare-metal driver, application wiring, and v002 LLM package consumption | In progress |
 | **v003 IP-core** | `pccx-v003` | Gemma 4 E4B | Separate IP-core line and compatibility contract | Future / TBD |
 
-- This repository keeps its in-tree RTL copy during the transition.
-- A later phase will wire `pccx-v002` in as the consumed IP-core source,
-  then remove duplicate in-tree copies once the integration boundary is
-  verified.
+- `third_party/pccx-v002` supplies the consumed v002 IP-core sources.
+- `hw/vivado/filelist.v002.f` is the KV260 integration compile entry for
+  the submodule-backed RTL.
 - v003 RTL belongs to the separate IP-core repository line.
 
 Full phase-by-phase plan, decision points, compute budget, and Year 2
@@ -302,11 +303,10 @@ Full phase-by-phase plan, decision points, compute budget, and Year 2
 | Simulation / trace-driven verification           | xsim smoke suite active |
 | Vivado synthesis + timing closure                | Synth attempted; no completed report yet. Timing closure pending. |
 
-> The current `hw/rtl/` tree reflects the v001 parameterization
-> (W4A16 / 32×32 array / 1 DSP = 1 MAC). Re-parameterization to the
-> v002 target (W4A8 / 32×16 ×2 / 1 DSP = 2 MAC) is the current
-> in-flight task. See the [design rationale](https://pccxai.github.io/pccx/en/docs/v002/Architecture/rationale.html#id3)
-> for the 3.125× theoretical speedup.
+> The reusable RTL previously carried under `hw/rtl/` now comes from
+> `third_party/pccx-v002/LLM/rtl/` and
+> `third_party/pccx-v002/common/rtl/`. The KV260-specific wrapper remains
+> at `hw/vivado/npu_core_wrapper.sv`.
 
 ---
 
@@ -314,20 +314,16 @@ Full phase-by-phase plan, decision points, compute budget, and Year 2
 
 ```
 hw/
-  rtl/
-    NPU_top.sv                ← top-level wiring
-    NPU_Controller/           ← VLIW frontend, decoder, Global Scheduler
-    MAT_CORE/                 ← Systolic array, normalizer, packer
-    VEC_CORE/                 ← GEMV pipeline (4 μV-Core lanes)
-    CVO_CORE/                 ← CVO SFU + CORDIC unit
-    PREPROCESS/               ← BF16 → fixed-pt pipeline, fmap cache
-    MEM_control/              ← L2 cache, DMA dispatcher, CVO bridge, HP buffer
-    Constants/                ← `define macros + SystemVerilog packages (A → D)
-    Library/                  ← BF16 math pkg, algorithms pkg, QUEUE
+  vivado/
+    filelist.v002.f           ← forwards to third_party/pccx-v002/LLM/scripts/filelist.f
+    npu_core_wrapper.sv       ← plain-signal wrapper around pccx_npu_top
+    *.tcl                     ← KV260 Vivado project, synth, and impl flow
 sw/
   driver/                     ← AXI-Lite MMIO HAL + inference API (skeleton)
   gemma3NE4B/                 ← Gemma 3N E4B application — planned for v0.2.0, not yet in tree
 docs/                         ← Redirect stub only — full docs live on pccx
+scripts/v002/                 ← submodule sim wrapper and local candidate checks
+third_party/pccx-v002/        ← pinned v002 IP-core submodule
 ```
 
 `docs/` in this repo is intentionally a **redirect stub**. All
@@ -338,22 +334,24 @@ GitHub Pages site.
 
 ## Verification workflow
 
-The repo ships a minimal xsim harness at `hw/sim/` that every testbench
-listed in `hw/sim/run_verification.sh` plugs into. One command runs the full suite and
-emits a `.pccx` trace per bench for [pccx-lab][pccx-lab] to visualise:
+The repo runs the v002 xsim harness through
+`scripts/v002/use_submodule_sources.sh`, which forwards to
+`third_party/pccx-v002/LLM/sim/run_verification.sh` with the pinned
+submodule RTL root. One command runs the full suite and emits a `.pccx`
+trace per bench for [pccx-lab][pccx-lab] to visualise:
 
 ```bash
-hw/sim/run_verification.sh
+scripts/v002/use_submodule_sources.sh
 ```
 
 For a shorter local smoke subset:
 
 ```bash
-hw/sim/run_verification.sh --quick
+scripts/v002/use_submodule_sources.sh --quick
 scripts/v002/run-local-candidate.sh --quick
 ```
 
-See [docs/SIMULATION.md](docs/SIMULATION.md) for generated log paths,
+See [docs/SIMULATION.md](docs/SIMULATION.md) for run log paths,
 PASS verdict rules, and the evidence checklist.
 
 ### Current testbench matrix
@@ -370,7 +368,7 @@ PASS verdict rules, and the evidence checklist.
 | `tb_barrel_shifter_BF16`           | `barrel_shifter_BF16` (BF16 → 27 b fixed-point)         |  512 |
 | `tb_ctrl_npu_decoder`              | `ctrl_npu_decoder` (4-bit opcode → one-hot valid)       |    6 |
 | `tb_mem_u_operation_queue`         | `mem_u_operation_queue` (queue push / pop smoke)         |   32 |
-| `tb_v002_runtime_smoke_program`    | generated v002 ISA `.memh` → decoder/scheduler handoff   |    7 |
+| `tb_v002_runtime_smoke_program`    | v002 ISA `.memh` -> decoder/scheduler handoff             |    7 |
 
 Every bench emits the canonical `PASS:` line that
 [pccx-lab][pccx-lab]'s `from_xsim_log` converter recognises — the
@@ -379,15 +377,11 @@ non-PASS verdict.
 
 ### Adding a new testbench
 
-Two lines in `hw/sim/run_verification.sh`:
-
-```bash
-TB_DEPS[tb_new_module]="SUB_DIR/new_module.sv"
-TB_CORE[tb_new_module]=N   # pick an unused core-id for the emitted trace
-```
-
-Then drop `hw/tb/tb_new_module.sv` with the canonical `$display` line on
-success / failure. See
+Reusable testbench registration lives in
+`third_party/pccx-v002/LLM/sim/run_verification.sh`, with testbench
+sources under `third_party/pccx-v002/LLM/tb/`. Changes to that reusable
+suite belong in `pccx-v002`; this repo should only update KV260-specific
+runtime inputs and wrappers. See
 [pccx-lab's verification-workflow doc](https://pccxai.github.io/pccx/en/lab/verification-workflow.html)
 for the end-to-end flow diagram and the Tauri IPC surface.
 
@@ -395,7 +389,7 @@ for the end-to-end flow diagram and the Tauri IPC surface.
 
 | Surface                 | Command                                            |
 |-------------------------|----------------------------------------------------|
-| Full suite runner       | `run_verification` IPC → `run_verification.sh`     |
+| Full suite runner       | `run_verification` IPC -> `scripts/v002/use_submodule_sources.sh` |
 | Per-tb trace loader     | "Open" button per row (calls `load_pccx`)          |
 | Synth utilisation       | `SynthStatusCard`  (parses `hw/build/reports/`)    |
 | Roofline classification | `RooflineCard`     (runs on the loaded trace)      |
