@@ -17,7 +17,7 @@ import bf16_math_pkg::*;
 // Clock        : clk_core @ 400 MHz (compute), clk_axi @ 250 MHz (HP/AXIL).
 // Reset        : rst_n_core / rst_axi_n active-low. Synchronous release.
 // Soft-clear   : i_clear (active-high, sync) — combined with reset wherever
-//                state is latched. See CLAUDE.md §3 reset convention.
+//                state is latched per the local reset convention.
 // Throughput   : Steady-state, dual-lane W4A8 systolic = 32 × 32 × 2 MAC/clk.
 // Backpressure : HP weight FIFOs (mem_HP_buffer) provide CDC + skid; ACP fmap
 //                FIFO (preprocess_fmap) holds at boundary when broadcast stalls.

@@ -22,8 +22,7 @@ import bf16_math_pkg::*;
 // Errors       : Overflow saturates to 0x7FFF; underflow rounds to 0;
 //                zero/denormal exp_raw treated as 0.
 // Counters     : none.
-// Protected    : Internals untouched (CLAUDE.md §6.2 — CORDIC math is
-//                user-owned).
+// Protected    : Internals untouched; CORDIC math remains user-owned.
 // ===============================================================================
 
 module CVO_cordic_unit (

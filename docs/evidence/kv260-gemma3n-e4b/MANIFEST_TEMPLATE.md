@@ -29,4 +29,4 @@ Not yet verified by this template:
 - KV260 NPU inference.
 - Gemma 3N E4B hardware execution.
 - 20 tok/s throughput.
-- Timing closure.
+- Post-implementation timing signoff.
