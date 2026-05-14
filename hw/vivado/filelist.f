@@ -99,3 +99,11 @@ rtl/NPU_top.sv
 # `add_files` it manually before packaging.
 vivado/npu_core_wrapper.sv
 vivado/npu_core_outer.v
+
+# ===| DataMover command/status AXIL helper (BD module-reference) |===========
+# Same pattern as npu_core_outer.v — Vivado's BD module-reference rejects
+# .sv as the top file (filemgmt 56-195), so a thin Verilog-2001 outer
+# wrapper sits in front of the SV body. The .sv must stay in this list so
+# BD synth elaborates the body when the outer is referenced.
+vivado/datamover_cmdsts_axil.sv
+vivado/datamover_cmdsts_axil_outer.v

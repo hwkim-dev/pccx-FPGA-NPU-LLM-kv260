@@ -336,18 +336,25 @@ if {[file exists $WRAPPER_STUB]} {
     puts "\[pccx\] WARNING: neither WRAPPER_STUB nor WRAPPER_DCP exists; create_bd_cell -reference may fail"
 }
 
-set CMDSTS_HELPER [file normalize $HW_ROOT/vivado/datamover_cmdsts_axil.sv]
-if {[file exists $CMDSTS_HELPER]} {
-    add_files -fileset sources_1 -norecurse $CMDSTS_HELPER
-    set _cmdsts_file [get_files -of_objects [get_filesets sources_1] $CMDSTS_HELPER]
-    if {$_cmdsts_file ne ""} {
-        set_property file_type SystemVerilog $_cmdsts_file
+set CMDSTS_HELPER_SV [file normalize $HW_ROOT/vivado/datamover_cmdsts_axil.sv]
+set CMDSTS_HELPER_V  [file normalize $HW_ROOT/vivado/datamover_cmdsts_axil_outer.v]
+foreach _helper [list $CMDSTS_HELPER_SV $CMDSTS_HELPER_V] {
+    if {[file exists $_helper]} {
+        add_files -fileset sources_1 -norecurse $_helper
+        set _cmdsts_file [get_files -of_objects [get_filesets sources_1] $_helper]
+        if {$_cmdsts_file ne ""} {
+            if {[string equal -nocase [file extension $_helper] ".sv"]} {
+                set_property file_type SystemVerilog $_cmdsts_file
+            } else {
+                set_property file_type Verilog $_cmdsts_file
+            }
+        }
+        puts "\[pccx\] DataMover AXIL helper added: $_helper"
+    } else {
+        puts "\[pccx\] FATAL: missing DataMover helper $_helper"
+        close_project
+        exit 5
     }
-    puts "\[pccx\] DataMover AXI-Lite command/status helper added"
-} else {
-    puts "\[pccx\] FATAL: missing DataMover command/status helper $CMDSTS_HELPER"
-    close_project
-    exit 5
 }
 
 # Set top BEFORE update_compile_order so the elaborator does not auto-elect
@@ -551,28 +558,28 @@ if {![file exists $BD_FILE]} {
     # PS-side descriptor issuer has measured sustained DDR read behavior.
     create_bd_cell -type ip -vlnv $VLNV_DM weight_dm_hp0
     pccx_config_datamover_mm2s weight_dm_hp0
-    create_bd_cell -type module -reference datamover_cmdsts_axil cmdsts_hp0
+    create_bd_cell -type module -reference datamover_cmdsts_axil_outer cmdsts_hp0
     pccx_config_cmdsts_axil cmdsts_hp0
 
     # TODO(weight_dm_hp1): Mirrors HP0 so each weight lane can be scheduled
     # independently. Burst size and command FIFO depth are first-pass values.
     create_bd_cell -type ip -vlnv $VLNV_DM weight_dm_hp1
     pccx_config_datamover_mm2s weight_dm_hp1
-    create_bd_cell -type module -reference datamover_cmdsts_axil cmdsts_hp1
+    create_bd_cell -type module -reference datamover_cmdsts_axil_outer cmdsts_hp1
     pccx_config_cmdsts_axil cmdsts_hp1
 
     # TODO(weight_dm_hp2): Mirrors HP0/HP1. Future descriptor manager should
     # coordinate tags across HP lanes instead of relying on PS-issued commands.
     create_bd_cell -type ip -vlnv $VLNV_DM weight_dm_hp2
     pccx_config_datamover_mm2s weight_dm_hp2
-    create_bd_cell -type module -reference datamover_cmdsts_axil cmdsts_hp2
+    create_bd_cell -type module -reference datamover_cmdsts_axil_outer cmdsts_hp2
     pccx_config_cmdsts_axil cmdsts_hp2
 
     # TODO(weight_dm_hp3): Fourth weight lane. Keep topology symmetric until
     # hardware evidence shows a reason to specialize burst or FIFO settings.
     create_bd_cell -type ip -vlnv $VLNV_DM weight_dm_hp3
     pccx_config_datamover_mm2s weight_dm_hp3
-    create_bd_cell -type module -reference datamover_cmdsts_axil cmdsts_hp3
+    create_bd_cell -type module -reference datamover_cmdsts_axil_outer cmdsts_hp3
     pccx_config_cmdsts_axil cmdsts_hp3
 
     # TODO(fmap_dm_acp): ACP is selected for PS<->NPU fmap latency. Confirm
@@ -580,7 +587,7 @@ if {![file exists $BD_FILE]} {
     # realistic fmap descriptors.
     create_bd_cell -type ip -vlnv $VLNV_DM fmap_dm_acp
     pccx_config_datamover_mm2s fmap_dm_acp
-    create_bd_cell -type module -reference datamover_cmdsts_axil cmdsts_acp_fmap
+    create_bd_cell -type module -reference datamover_cmdsts_axil_outer cmdsts_acp_fmap
     pccx_config_cmdsts_axil cmdsts_acp_fmap
 
     # TODO(result_dm_acp): Result write-back shares ACP with fmap. The current
@@ -588,7 +595,7 @@ if {![file exists $BD_FILE]} {
     # low until a descriptor-aware result framing adapter is reviewed.
     create_bd_cell -type ip -vlnv $VLNV_DM result_dm_acp
     pccx_config_datamover_s2mm result_dm_acp
-    create_bd_cell -type module -reference datamover_cmdsts_axil cmdsts_acp_result
+    create_bd_cell -type module -reference datamover_cmdsts_axil_outer cmdsts_acp_result
     pccx_config_cmdsts_axil cmdsts_acp_result
 
     foreach cell {cmdsts_hp0 cmdsts_hp1 cmdsts_hp2 cmdsts_hp3 cmdsts_acp_fmap cmdsts_acp_result} {
