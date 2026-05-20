@@ -139,6 +139,30 @@ def npu_status() -> dict:
     }
 
 
+def npu_backend_readiness() -> dict:
+    """Return whether the NPU path can produce Gemma tensor results."""
+    available = npu_available()
+    experimental_axil = _env_truthy("PCCX_NPU_EXPERIMENTAL_DISPATCH")
+    hardware_results = False
+    if not available:
+        reason = (
+            "NPU UIO/bitstream is not available; Gemma tensor dispatch would "
+            "use CPU fallback"
+        )
+    else:
+        reason = (
+            "NPU UIO/bitstream is available, but high-level Gemma tensor "
+            "dispatch still returns NumPy golden results; DMA buffer ownership "
+            "and result readback are not implemented"
+        )
+    return {
+        "npu_available": available,
+        "hardware_results": hardware_results,
+        "experimental_axil_dispatch": experimental_axil,
+        "reason": reason,
+    }
+
+
 def npu_available() -> bool:
     """True iff /dev/uio4 opens and the loaded bitstream hash is expected."""
     global NPU_AVAILABLE

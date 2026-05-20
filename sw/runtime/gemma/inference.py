@@ -19,9 +19,17 @@ from .tokenizer import GemmaTokenizer
 from .weights import DEFAULT_MODEL_DIR, GemmaGlobalWeights, GemmaWeights, matmul_weight
 
 try:  # pragma: no cover - exercised when the board runtime module lands.
+    from sw.runtime.npu import npu_backend_readiness as _runtime_npu_backend_readiness
     from sw.runtime.npu import npu_status as _runtime_npu_status
 except Exception:  # pragma: no cover - import fallback is tested indirectly.
+    _runtime_npu_backend_readiness = None
     _runtime_npu_status = None
+
+
+BACKEND_AUTO = "auto"
+BACKEND_CPU = "cpu"
+BACKEND_NPU = "npu"
+BACKEND_CHOICES = {BACKEND_AUTO, BACKEND_CPU, BACKEND_NPU}
 
 
 def _default_npu_status(available: bool = False) -> dict:
@@ -31,6 +39,50 @@ def _default_npu_status(available: bool = False) -> dict:
         "done": False,
         "available": available,
     }
+
+
+def _default_npu_backend_readiness(reason: str = "NPU runtime is not importable") -> dict:
+    return {
+        "npu_available": False,
+        "hardware_results": False,
+        "experimental_axil_dispatch": False,
+        "reason": reason,
+    }
+
+
+def _read_npu_backend_readiness() -> dict:
+    if _runtime_npu_backend_readiness is None:
+        return _default_npu_backend_readiness()
+    try:
+        return dict(_runtime_npu_backend_readiness())
+    except Exception as exc:
+        return _default_npu_backend_readiness(f"{type(exc).__name__}: {exc}")
+
+
+def _resolve_backend(
+    requested_backend: str,
+    use_npu: bool | None,
+    readiness: dict,
+) -> tuple[bool, str, str]:
+    requested = str(requested_backend or BACKEND_AUTO).strip().lower()
+    if requested not in BACKEND_CHOICES:
+        raise ValueError(
+            f"backend must be one of {sorted(BACKEND_CHOICES)}, got {requested_backend!r}"
+        )
+    if requested == BACKEND_NPU and use_npu is False:
+        raise ValueError("backend='npu' conflicts with use_npu=False")
+
+    reason = str(readiness.get("reason") or "")
+    hardware_results = bool(readiness.get("hardware_results"))
+    if requested == BACKEND_CPU or use_npu is False:
+        return False, BACKEND_CPU, "CPU backend requested"
+    if requested == BACKEND_NPU:
+        if not hardware_results:
+            raise RuntimeError(f"NPU backend requested but unavailable: {reason}")
+        return True, BACKEND_NPU, "NPU backend requested"
+    if hardware_results:
+        return True, BACKEND_NPU, "NPU backend auto-selected"
+    return False, BACKEND_CPU, reason or "NPU backend is not ready"
 
 
 def _sample(logits: np.ndarray, temperature: float, top_p: float) -> int:
@@ -55,19 +107,26 @@ class GemmaInferenceSession:
         self,
         model_dir: str = DEFAULT_MODEL_DIR,
         *,
-        use_npu: bool = True,
+        use_npu: bool | None = None,
+        backend: str = BACKEND_AUTO,
         max_seq_len: int = 1024,
         dtype: str = "fp16",
     ) -> None:
         self.arch: GemmaArch = GEMMA_3N_E4B_DEFAULTS
         self.arch.validate()
         self.model_dir = model_dir
-        self.use_npu = use_npu
+        self.backend_requested = str(backend or BACKEND_AUTO).strip().lower()
+        self.npu_backend_readiness = _read_npu_backend_readiness()
+        self.use_npu, self.backend, self.backend_reason = _resolve_backend(
+            self.backend_requested,
+            use_npu,
+            self.npu_backend_readiness,
+        )
         self.max_seq_len = max_seq_len
         self.dtype = dtype
         self.weights = GemmaWeights(model_dir, arch=self.arch)
         self.tokenizer = GemmaTokenizer(model_dir)
-        self.decoder = GemmaDecoderLayer(self.arch, use_npu=use_npu)
+        self.decoder = GemmaDecoderLayer(self.arch, use_npu=self.use_npu)
         self._globals: GemmaGlobalWeights | None = None
         self._sessions: dict[str, dict] = {}
         self._tokens_total = 0

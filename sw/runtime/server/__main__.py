@@ -10,10 +10,19 @@ except Exception:
     pass
 
 import argparse
+import os
 
 from aiohttp import web
 
 from .app import create_app
+
+
+BACKEND_CHOICES = ("auto", "cpu", "npu")
+
+
+def _default_backend() -> str:
+    value = os.getenv("PCCX_BACKEND", "auto").strip().lower()
+    return value if value in BACKEND_CHOICES else "auto"
 
 
 def main() -> None:
@@ -22,13 +31,25 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0", help="bind address")
     parser.add_argument("--port", default=7860, type=int, help="bind port")
     parser.add_argument(
+        "--backend",
+        choices=BACKEND_CHOICES,
+        default=_default_backend(),
+        help="inference backend: auto, cpu, or strict npu",
+    )
+    parser.add_argument(
         "--no-model",
         action="store_true",
         help="start HTTP and WebSocket routes without loading a model",
     )
     args = parser.parse_args()
     model_path = None if args.no_model else args.model
-    app = create_app(None, host=args.host, port=args.port, model_path=model_path)
+    app = create_app(
+        None,
+        host=args.host,
+        port=args.port,
+        model_path=model_path,
+        backend=args.backend,
+    )
     web.run_app(app, host=args.host, port=args.port)
 
 

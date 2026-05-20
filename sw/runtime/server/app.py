@@ -33,6 +33,8 @@ class ServerState:
     loading: bool = False
     load_error: Optional[str] = None
     model_path: Optional[str] = None
+    backend_requested: str = "auto"
+    backend_reason: str = ""
     histories: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
     tokens_total: int = 0
     tokens_per_sec_last: float = 0.0
@@ -52,7 +54,7 @@ class ServerState:
     @property
     def backend(self) -> str:
         value = getattr(self.session, "backend", None)
-        if value in {"cpu", "npu_uca", "hybrid"}:
+        if value in {"cpu", "npu", "npu_uca", "hybrid"}:
             return str(value)
         return "cpu"
 
@@ -78,12 +80,18 @@ class ServerState:
         self.load_error = None
         self.load_started_at = time.monotonic()
         try:
-            session = await asyncio.to_thread(_construct_gemma_session, model_path)
+            session = await asyncio.to_thread(
+                _construct_gemma_session,
+                model_path,
+                self.backend_requested,
+            )
             await _maybe_call_lifecycle(session, model_path)
             self.session = session
+            self.backend_reason = str(getattr(session, "backend_reason", ""))
         except Exception as exc:  # pragma: no cover - exercised on board images.
             self.session = None
             self.load_error = f"{type(exc).__name__}: {exc}"
+            self.backend_reason = str(exc)
         finally:
             started = self.load_started_at or time.monotonic()
             self.elapsed_load_sec = time.monotonic() - started
@@ -127,6 +135,7 @@ def create_app(
     host: str,
     port: int,
     model_path: Optional[str] = None,
+    backend: str = "auto",
 ) -> web.Application:
     app = web.Application(middlewares=[_cors_middleware])
     app[SERVER_STATE_KEY] = ServerState(
@@ -134,6 +143,7 @@ def create_app(
         host=host,
         port=port,
         model_path=os.path.expanduser(model_path) if model_path else None,
+        backend_requested=backend,
     )
     app[TRACE_EMITTER_KEY] = TraceEmitter()
 
@@ -210,6 +220,8 @@ def status_payload(state: ServerState) -> Dict[str, Any]:
         "npu_done": npu["npu_done"],
         "npu_available": npu["npu_available"],
         "backend": state.backend,
+        "backend_requested": state.backend_requested,
+        "backend_reason": state.backend_reason,
         "uptime_sec": int(time.monotonic() - state.started_at),
         "bitstream_sha": bitstream_sha256(),
         "host": socket.gethostname(),
@@ -290,10 +302,13 @@ def _parse_stat_value(value: Any) -> int:
         return 0
 
 
-def _construct_gemma_session(model_path: str) -> Any:
+def _construct_gemma_session(model_path: str, backend: str = "auto") -> Any:
     module = importlib.import_module("sw.runtime.gemma")
     session_cls = getattr(module, "GemmaInferenceSession")
     for kwargs in (
+        {"model_path": model_path, "backend": backend},
+        {"model_dir": model_path, "backend": backend},
+        {"model": model_path, "backend": backend},
         {"model_path": model_path},
         {"model_dir": model_path},
         {"model": model_path},

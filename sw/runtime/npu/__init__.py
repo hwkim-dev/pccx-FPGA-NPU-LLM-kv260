@@ -11,10 +11,18 @@ experimental and golden-vector gated.
 """
 from __future__ import annotations
 
-from .npu_core import npu_available, npu_cvo, npu_gemm, npu_gemv, npu_status
+from .npu_core import (
+    npu_available,
+    npu_backend_readiness,
+    npu_cvo,
+    npu_gemm,
+    npu_gemv,
+    npu_status,
+)
 
 __all__ = [
     "npu_available",
+    "npu_backend_readiness",
     "npu_cvo",
     "npu_gemm",
     "npu_gemv",
